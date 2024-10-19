@@ -1,0 +1,444 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script>function neighbourhoodHighlight(params) {
+  // console.log("in nieghbourhoodhighlight");
+  allNodes = nodes.get({ returnType: "Object" });
+  // originalNodes = JSON.parse(JSON.stringify(allNodes));
+  // if something is selected:
+  if (params.nodes.length > 0) {
+    highlightActive = true;
+    var i, j;
+    var selectedNode = params.nodes[0];
+    var degrees = 2;
+
+    // mark all nodes as hard to read.
+    for (let nodeId in allNodes) {
+      // nodeColors[nodeId] = allNodes[nodeId].color;
+      allNodes[nodeId].color = "rgba(200,200,200,0.5)";
+      if (allNodes[nodeId].hiddenLabel === undefined) {
+        allNodes[nodeId].hiddenLabel = allNodes[nodeId].label;
+        allNodes[nodeId].label = undefined;
+      }
+    }
+    var connectedNodes = network.getConnectedNodes(selectedNode);
+    var allConnectedNodes = [];
+
+    // get the second degree nodes
+    for (i = 1; i < degrees; i++) {
+      for (j = 0; j < connectedNodes.length; j++) {
+        allConnectedNodes = allConnectedNodes.concat(
+          network.getConnectedNodes(connectedNodes[j])
+        );
+      }
+    }
+
+    // all second degree nodes get a different color and their label back
+    for (i = 0; i < allConnectedNodes.length; i++) {
+      // allNodes[allConnectedNodes[i]].color = "pink";
+      allNodes[allConnectedNodes[i]].color = "rgba(150,150,150,0.75)";
+      if (allNodes[allConnectedNodes[i]].hiddenLabel !== undefined) {
+        allNodes[allConnectedNodes[i]].label =
+          allNodes[allConnectedNodes[i]].hiddenLabel;
+        allNodes[allConnectedNodes[i]].hiddenLabel = undefined;
+      }
+    }
+
+    // all first degree nodes get their own color and their label back
+    for (i = 0; i < connectedNodes.length; i++) {
+      // allNodes[connectedNodes[i]].color = undefined;
+      allNodes[connectedNodes[i]].color = nodeColors[connectedNodes[i]];
+      if (allNodes[connectedNodes[i]].hiddenLabel !== undefined) {
+        allNodes[connectedNodes[i]].label =
+          allNodes[connectedNodes[i]].hiddenLabel;
+        allNodes[connectedNodes[i]].hiddenLabel = undefined;
+      }
+    }
+
+    // the main node gets its own color and its label back.
+    // allNodes[selectedNode].color = undefined;
+    allNodes[selectedNode].color = nodeColors[selectedNode];
+    if (allNodes[selectedNode].hiddenLabel !== undefined) {
+      allNodes[selectedNode].label = allNodes[selectedNode].hiddenLabel;
+      allNodes[selectedNode].hiddenLabel = undefined;
+    }
+  } else if (highlightActive === true) {
+    // console.log("highlightActive was true");
+    // reset all nodes
+    for (let nodeId in allNodes) {
+      // allNodes[nodeId].color = "purple";
+      allNodes[nodeId].color = nodeColors[nodeId];
+      // delete allNodes[nodeId].color;
+      if (allNodes[nodeId].hiddenLabel !== undefined) {
+        allNodes[nodeId].label = allNodes[nodeId].hiddenLabel;
+        allNodes[nodeId].hiddenLabel = undefined;
+      }
+    }
+    highlightActive = false;
+  }
+
+  // transform the object into an array
+  var updateArray = [];
+  if (params.nodes.length > 0) {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        // console.log(allNodes[nodeId]);
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  } else {
+    // console.log("Nothing was selected");
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        // console.log(allNodes[nodeId]);
+        // allNodes[nodeId].color = {};
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  }
+}
+
+function filterHighlight(params) {
+  allNodes = nodes.get({ returnType: "Object" });
+  // if something is selected:
+  if (params.nodes.length > 0) {
+    filterActive = true;
+    let selectedNodes = params.nodes;
+
+    // hiding all nodes and saving the label
+    for (let nodeId in allNodes) {
+      allNodes[nodeId].hidden = true;
+      if (allNodes[nodeId].savedLabel === undefined) {
+        allNodes[nodeId].savedLabel = allNodes[nodeId].label;
+        allNodes[nodeId].label = undefined;
+      }
+    }
+
+    for (let i=0; i < selectedNodes.length; i++) {
+      allNodes[selectedNodes[i]].hidden = false;
+      if (allNodes[selectedNodes[i]].savedLabel !== undefined) {
+        allNodes[selectedNodes[i]].label = allNodes[selectedNodes[i]].savedLabel;
+        allNodes[selectedNodes[i]].savedLabel = undefined;
+      }
+    }
+
+  } else if (filterActive === true) {
+    // reset all nodes
+    for (let nodeId in allNodes) {
+      allNodes[nodeId].hidden = false;
+      if (allNodes[nodeId].savedLabel !== undefined) {
+        allNodes[nodeId].label = allNodes[nodeId].savedLabel;
+        allNodes[nodeId].savedLabel = undefined;
+      }
+    }
+    filterActive = false;
+  }
+
+  // transform the object into an array
+  var updateArray = [];
+  if (params.nodes.length > 0) {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  } else {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  }
+}
+
+function selectNode(nodes) {
+  network.selectNodes(nodes);
+  neighbourhoodHighlight({ nodes: nodes });
+  return nodes;
+}
+
+function selectNodes(nodes) {
+  network.selectNodes(nodes);
+  filterHighlight({nodes: nodes});
+  return nodes;
+}
+
+function highlightFilter(filter) {
+  let selectedNodes = []
+  let selectedProp = filter['property']
+  if (filter['item'] === 'node') {
+    let allNodes = nodes.get({ returnType: "Object" });
+    for (let nodeId in allNodes) {
+      if (allNodes[nodeId][selectedProp] && filter['value'].includes((allNodes[nodeId][selectedProp]).toString())) {
+        selectedNodes.push(nodeId)
+      }
+    }
+  }
+  else if (filter['item'] === 'edge'){
+    let allEdges = edges.get({returnType: 'object'});
+    // check if the selected property exists for selected edge and select the nodes connected to the edge
+    for (let edge in allEdges) {
+      if (allEdges[edge][selectedProp] && filter['value'].includes((allEdges[edge][selectedProp]).toString())) {
+        selectedNodes.push(allEdges[edge]['from'])
+        selectedNodes.push(allEdges[edge]['to'])
+      }
+    }
+  }
+  selectNodes(selectedNodes)
+}</script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+            
+            
+            
+            
+            
+
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 500px;
+                 background-color: #ffffff;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+             #loadingBar {
+                 position:absolute;
+                 top:0px;
+                 left:0px;
+                 width: 100%;
+                 height: 500px;
+                 background-color:rgba(200,200,200,0.8);
+                 -webkit-transition: all 0.5s ease;
+                 -moz-transition: all 0.5s ease;
+                 -ms-transition: all 0.5s ease;
+                 -o-transition: all 0.5s ease;
+                 transition: all 0.5s ease;
+                 opacity:1;
+             }
+
+             #bar {
+                 position:absolute;
+                 top:0px;
+                 left:0px;
+                 width:20px;
+                 height:20px;
+                 margin:auto auto auto auto;
+                 border-radius:11px;
+                 border:2px solid rgba(30,30,30,0.05);
+                 background: rgb(0, 173, 246); /* Old browsers */
+                 box-shadow: 2px 0px 4px rgba(0,0,0,0.4);
+             }
+
+             #border {
+                 position:absolute;
+                 top:10px;
+                 left:10px;
+                 width:500px;
+                 height:23px;
+                 margin:auto auto auto auto;
+                 box-shadow: 0px 0px 4px rgba(0,0,0,0.2);
+                 border-radius:10px;
+             }
+
+             #text {
+                 position:absolute;
+                 top:8px;
+                 left:530px;
+                 width:30px;
+                 height:50px;
+                 margin:auto auto auto auto;
+                 font-size:22px;
+                 color: #000000;
+             }
+
+             div.outerBorder {
+                 position:relative;
+                 top:400px;
+                 width:600px;
+                 height:44px;
+                 margin:auto auto auto auto;
+                 border:8px solid rgba(0,0,0,0.1);
+                 background: rgb(252,252,252); /* Old browsers */
+                 background: -moz-linear-gradient(top,  rgba(252,252,252,1) 0%, rgba(237,237,237,1) 100%); /* FF3.6+ */
+                 background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,rgba(252,252,252,1)), color-stop(100%,rgba(237,237,237,1))); /* Chrome,Safari4+ */
+                 background: -webkit-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* Chrome10+,Safari5.1+ */
+                 background: -o-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* Opera 11.10+ */
+                 background: -ms-linear-gradient(top,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* IE10+ */
+                 background: linear-gradient(to bottom,  rgba(252,252,252,1) 0%,rgba(237,237,237,1) 100%); /* W3C */
+                 filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#fcfcfc', endColorstr='#ededed',GradientType=0 ); /* IE6-9 */
+                 border-radius:72px;
+                 box-shadow: 0px 0px 10px rgba(0,0,0,0.2);
+             }
+             
+
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+            <div id="loadingBar">
+              <div class="outerBorder">
+                <div id="text">0%</div>
+                <div id="border">
+                  <div id="bar"></div>
+                </div>
+              </div>
+            </div>
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": "#97c2fc", "id": "\ufeffThe", "label": "\ufeffThe", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "whatsoever", "label": "whatsoever", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "The", "label": "The", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "You", "label": "You", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "www", "label": "www", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "research", "label": "research", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "others", "label": "others", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "form", "label": "form", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "taxes", "label": "taxes", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "works", "label": "works", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "START:", "label": "START:", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "To", "label": "To", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Email", "label": "Email", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Most", "label": "Most", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "If", "label": "If", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "eBook", "label": "eBook", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "easy", "label": "easy", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "possession", "label": "possession", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1", "label": "1", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "removed", "label": "removed", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "work", "label": "work", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "U", "label": "U", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "trademark", "label": "trademark", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "explanation", "label": "explanation", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "refund", "label": "refund", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "problem", "label": "problem", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "law", "label": "law", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Title:", "label": "Title:", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "W", "label": "W", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "53)]", "label": "53)]", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\"", "label": "\"", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Brockwell", "label": "Brockwell", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "LISA", "label": "LISA", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "renamed", "label": "renamed", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Frontispiece", "label": "Frontispiece", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Louvre", "label": "Louvre", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "15)", "label": "15)", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Several", "label": "Several", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "wished", "label": "wished", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "He", "label": "He", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "-PORTRAIT", "label": "-PORTRAIT", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "It", "label": "It", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "ANNE", "label": "ANNE", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "2", "label": "2", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "ins", "label": "ins", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "99", "label": "99", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "3", "label": "3", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "By", "label": "By", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "About", "label": "About", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "ft", "label": "ft", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "agreement", "label": "agreement", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "by", "label": "by", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "77", "label": "77", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "0", "label": "0", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "32", "label": "32", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "62", "label": "62", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "BROCKWELL", "label": "BROCKWELL", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "with", "label": "with", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Moreover,", "label": "Moreover,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\u0027Pencil", "label": "\u0027Pencil", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "be", "label": "be", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\u0027\"", "label": "\u0027\"", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "to-day", "label": "to-day", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "CONTENTS", "label": "CONTENTS", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "I", "label": "I", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "mystical", "label": "mystical", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\"]", "label": "\"]", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "HIS", "label": "HIS", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Mona", "label": "Mona", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "II", "label": "II", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "her", "label": "her", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "[Illustration:", "label": "[Illustration:", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "This", "label": "This", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Annunciation", "label": "Annunciation", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "III", "label": "III", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "]", "label": "]", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Virgin", "label": "Virgin", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "IV", "label": "IV", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "THE", "label": "THE", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "V", "label": "V", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "handwriting--viz", "label": "handwriting--viz", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Florence", "label": "Florence", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "IX", "label": "IX", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "productions", "label": "productions", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Conception", "label": "Conception", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "St", "label": "St", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "tenderness", "label": "tenderness", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "divine", "label": "divine", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "VI", "label": "VI", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Ludovico", "label": "Ludovico", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "nature", "label": "nature", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "blood", "label": "blood", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "birthplace", "label": "birthplace", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Anghiari", "label": "Anghiari", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "lost", "label": "lost", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "age", "label": "age", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "knowledge", "label": "knowledge", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "States", "label": "States", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Foundation", "label": "Foundation", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "provisions", "label": "provisions", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "64-6221541", "label": "64-6221541", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "596-1887", "label": "596-1887", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "40)]", "label": "40)]", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Copy", "label": "Copy", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Head", "label": "Head", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "VII", "label": "VII", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Leonardo,", "label": "Leonardo,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Among", "label": "Among", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Portrait", "label": "Portrait", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "VIII", "label": "VIII", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "AGAIN", "label": "AGAIN", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Madonna,", "label": "Madonna,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Anne", "label": "Anne", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "In", "label": "In", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "times", "label": "times", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Painters", "label": "Painters", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\"St", "label": "\"St", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "doorway", "label": "doorway", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "it", "label": "it", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Mazza", "label": "Mazza", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "dirt", "label": "dirt", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "effaced", "label": "effaced", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "injury", "label": "injury", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "light", "label": "light", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "there", "label": "there", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "man", "label": "man", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Bellini", "label": "Bellini", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "reign", "label": "reign", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1512", "label": "1512", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "wanderer", "label": "wanderer", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Giocondo", "label": "Giocondo", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "completed", "label": "completed", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "sketches", "label": "sketches", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "generations", "label": "generations", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Leonardo", "label": "Leonardo", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "--Annunciation", "label": "--Annunciation", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Vinci", "label": "Vinci", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "sunset", "label": "sunset", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Leonardo\u0027s", "label": "Leonardo\u0027s", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Outside", "label": "Outside", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "inhabitants", "label": "inhabitants", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "exporter", "label": "exporter", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "wives", "label": "wives", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1469-1470", "label": "1469-1470", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "time", "label": "time", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1288)", "label": "1288)", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1477", "label": "1477", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "me", "label": "me", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Iscariot", "label": "Iscariot", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Some", "label": "Some", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1500", "label": "1500", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "since", "label": "since", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "recorded", "label": "recorded", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "open", "label": "open", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "18)", "label": "18)", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Verrocchio", "label": "Verrocchio", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "him", "label": "him", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "certainty", "label": "certainty", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "himself", "label": "himself", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "His", "label": "His", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1452", "label": "1452", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "revealed", "label": "revealed", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "adoption", "label": "adoption", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "devices", "label": "devices", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Is", "label": "Is", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "energy", "label": "energy", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "them", "label": "them", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "away", "label": "away", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "soul", "label": "soul", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Rome", "label": "Rome", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Donato", "label": "Donato", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "There", "label": "There", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "years", "label": "years", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "music", "label": "music", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "art", "label": "art", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "torso", "label": "torso", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Sforza", "label": "Sforza", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "before", "label": "before", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "miracle", "label": "miracle", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "grief", "label": "grief", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "pulses", "label": "pulses", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "picture", "label": "picture", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "pupils", "label": "pupils", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "house", "label": "house", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "(No", "label": "(No", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "temperaments", "label": "temperaments", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Milan", "label": "Milan", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Father", "label": "Father", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "XII", "label": "XII", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1504", "label": "1504", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "century", "label": "century", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Standard", "label": "Standard", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Museum", "label": "Museum", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "existence", "label": "existence", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "imagination", "label": "imagination", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Melzi", "label": "Melzi", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "painting", "label": "painting", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "World", "label": "World", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "coupled", "label": "coupled", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "SUPERMAN", "label": "SUPERMAN", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Unfortunately", "label": "Unfortunately", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "us", "label": "us", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Indeed", "label": "Indeed", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Of", "label": "Of", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Additional", "label": "Additional", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "3,", "label": "3,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\u2022", "label": "\u2022", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "colourist", "label": "colourist", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Uffizi", "label": "Uffizi", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\"Every", "label": "\"Every", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "-THE", "label": "-THE", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Gallery", "label": "Gallery", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "in", "label": "in", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "83", "label": "83", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "70", "label": "70", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "General", "label": "General", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "See", "label": "See", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Unless", "label": "Unless", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "7", "label": "7", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "8", "label": "8", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Do", "label": "Do", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "License", "label": "License", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Any", "label": "Any", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "LIMITED", "label": "LIMITED", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "YOU", "label": "YOU", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Except", "label": "Except", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "),", "label": "),", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "That", "label": "That", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Credi", "label": "Credi", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Mass", "label": "Mass", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "probable", "label": "probable", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Cracow", "label": "Cracow", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Novara", "label": "Novara", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "original", "label": "original", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "completion", "label": "completion", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "inconvenience", "label": "inconvenience", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "unity", "label": "unity", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Apostles", "label": "Apostles", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Academy", "label": "Academy", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "F\u00e9ronni\u00e8re", "label": "F\u00e9ronni\u00e8re", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "beauty", "label": "beauty", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "1440", "label": "1440", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "studied", "label": "studied", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "task", "label": "task", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "life", "label": "life", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Another", "label": "Another", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "He,", "label": "He,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Such", "label": "Such", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "infancy", "label": "infancy", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "master", "label": "master", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Venice", "label": "Venice", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "contemporaries", "label": "contemporaries", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\u00a39000", "label": "\u00a39000", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "eBooks", "label": "eBooks", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Zenobius,\"", "label": "Zenobius,\"", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": ",", "label": ",", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "abbreviations", "label": "abbreviations", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Collection", "label": "Collection", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "sufferings", "label": "sufferings", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "On", "label": "On", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "John", "label": "John", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Bernard,", "label": "Bernard,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Signor", "label": "Signor", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "LEONARDO", "label": "LEONARDO", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Bernardo", "label": "Bernardo", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "account", "label": "account", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Lippi", "label": "Lippi", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "later", "label": "later", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "accent", "label": "accent", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "salt-cellar", "label": "salt-cellar", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Jerome", "label": "Jerome", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "_terraverte_", "label": "_terraverte_", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Its", "label": "Its", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Windsor", "label": "Windsor", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Cardinal", "label": "Cardinal", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "As", "label": "As", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "executed", "label": "executed", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "ruined", "label": "ruined", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Vasari", "label": "Vasari", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "vestments", "label": "vestments", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "unfinished", "label": "unfinished", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Sacrament", "label": "Sacrament", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "FIRST", "label": "FIRST", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "secrets", "label": "secrets", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Maria", "label": "Maria", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "child", "label": "child", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Francesco", "label": "Francesco", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "--THE", "label": "--THE", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Lionard", "label": "Lionard", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "sculptor", "label": "sculptor", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "16", "label": "16", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "09)]", "label": "09)]", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "buildings", "label": "buildings", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Time", "label": "Time", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "IN", "label": "IN", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "engineer", "label": "engineer", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "X", "label": "X", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "BACK", "label": "BACK", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Corte", "label": "Corte", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Aragon", "label": "Aragon", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Sciences", "label": "Sciences", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "--COPY", "label": "--COPY", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Gianpetrino", "label": "Gianpetrino", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Supper", "label": "Supper", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": ")", "label": ")", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "S", "label": "S", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Before", "label": "Before", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Subsequently", "label": "Subsequently", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "flooded", "label": "flooded", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "But", "label": "But", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "mind", "label": "mind", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Vainly", "label": "Vainly", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "holiness", "label": "holiness", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Can", "label": "Can", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "find", "label": "find", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Padre", "label": "Padre", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Lord", "label": "Lord", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Well,", "label": "Well,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "his", "label": "his", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "damages", "label": "damages", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Having", "label": "Having", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Beatrice", "label": "Beatrice", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "married", "label": "married", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Cecilia", "label": "Cecilia", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "John,\"", "label": "John,\"", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "House", "label": "House", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Though", "label": "Though", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "draughtsmanship", "label": "draughtsmanship", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "entered", "label": "entered", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "city", "label": "city", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "After", "label": "After", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Cese-natico", "label": "Cese-natico", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "44)", "label": "44)", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Crivelli", "label": "Crivelli", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Lisa", "label": "Lisa", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Gherardini", "label": "Gherardini", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Vasari\u0027s", "label": "Vasari\u0027s", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "reproduced", "label": "reproduced", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Contrast", "label": "Contrast", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "creature", "label": "creature", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "for", "label": "for", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\u00a31800", "label": "\u00a31800", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "BATTLE", "label": "BATTLE", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Vecchio", "label": "Vecchio", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "a", "label": "a", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "income", "label": "income", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "-MADONNA,", "label": "-MADONNA,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "ST", "label": "ST", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "29)", "label": "29)", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "assistants", "label": "assistants", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Germain-en", "label": "Germain-en", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\"Mr", "label": "\"Mr", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Miserable", "label": "Miserable", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "They", "label": "They", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "left", "label": "left", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\"did", "label": "\"did", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "philosopher", "label": "philosopher", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Tears", "label": "Tears", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "brain", "label": "brain", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "A", "label": "A", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "not", "label": "not", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Every", "label": "Every", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "effort", "label": "effort", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "org),", "label": "org),", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Creating", "label": "Creating", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Project", "label": "Project", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Contributions", "label": "Contributions", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "copyright", "label": "copyright", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "royalties", "label": "royalties", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "charges", "label": "charges", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "collection", "label": "collection", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Special", "label": "Special", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\u201cProject", "label": "\u201cProject", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Redistribution", "label": "Redistribution", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "redistribution", "label": "redistribution", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Nearly", "label": "Nearly", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "International", "label": "International", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Copyright", "label": "Copyright", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "change", "label": "change", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "holder", "label": "holder", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Gutenberg\u2122", "label": "Gutenberg\u2122", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "\u201d", "label": "\u201d", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "However,", "label": "However,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "(www", "label": "(www", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Royalty", "label": "Royalty", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "returns", "label": "returns", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "fees", "label": "fees", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "PURPOSE", "label": "PURPOSE", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Contact", "label": "Contact", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "below", "label": "below", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Despite", "label": "Despite", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "equipment", "label": "equipment", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Information", "label": "Information", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "from", "label": "from", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "DAMAGE", "label": "DAMAGE", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "INDEMNITY", "label": "INDEMNITY", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "cause", "label": "cause", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "computers", "label": "computers", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Service", "label": "Service", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Volunteers", "label": "Volunteers", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "come", "label": "come", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "federal", "label": "federal", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "laws", "label": "laws", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "staff", "label": "staff", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "org/contact", "label": "org/contact", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "4", "label": "4", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Many", "label": "Many", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "IRS", "label": "IRS", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Compliance", "label": "Compliance", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "requirements", "label": "requirements", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "We", "label": "We", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "compliance", "label": "compliance", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "While", "label": "While", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "donate", "label": "donate", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Please", "label": "Please", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "addresses", "label": "addresses", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Donations", "label": "Donations", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "donations", "label": "donations", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Hart", "label": "Hart", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "anyone", "label": "anyone", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "For", "label": "For", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "support", "label": "support", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "unless", "label": "unless", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "included", "label": "included", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "Thus,", "label": "Thus,", "shape": "dot", "size": 10}, {"color": "#97c2fc", "id": "edition", "label": "edition", "shape": "dot", "size": 10}]);
+                  edges = new vis.DataSet([{"from": "\ufeffThe", "relation": "Project", "to": "whatsoever", "width": 1}, {"from": "whatsoever", "relation": "following", "to": "The", "width": 1}, {"from": "You", "relation": "may", "to": "www", "width": 1}, {"from": "You", "relation": "may", "to": "research", "width": 1}, {"from": "You", "relation": "can", "to": "others", "width": 1}, {"from": "You", "relation": "may", "to": "form", "width": 1}, {"from": "You", "relation": "may", "to": "taxes", "width": 1}, {"from": "You", "relation": "must", "to": "works", "width": 1}, {"from": "www", "relation": "FULL", "to": "START:", "width": 1}, {"from": "www", "relation": "donate,", "to": "To", "width": 1}, {"from": "www", "relation": "contact", "to": "Email", "width": 1}, {"from": "www", "relation": "people", "to": "Most", "width": 1}, {"from": "If", "relation": "you", "to": "eBook", "width": 1}, {"from": "If", "relation": "you", "to": "easy", "width": 1}, {"from": "If", "relation": "you", "to": "possession", "width": 1}, {"from": "If", "relation": "an", "to": "1", "width": 1}, {"from": "If", "relation": "an", "to": "removed", "width": 1}, {"from": "If", "relation": "you", "to": "work", "width": 1}, {"from": "If", "relation": "an", "to": "U", "width": 1}, {"from": "If", "relation": "you", "to": "trademark", "width": 1}, {"from": "If", "relation": "you", "to": "explanation", "width": 1}, {"from": "If", "relation": "you", "to": "refund", "width": 1}, {"from": "If", "relation": "the", "to": "problem", "width": 1}, {"from": "If", "relation": "any", "to": "law", "width": 1}, {"from": "Title:", "relation": "Leonardo", "to": "W", "width": 1}, {"from": "W", "relation": "LEONARDO", "to": "53)]", "width": 1}, {"from": "W", "relation": "End", "to": "\"", "width": 1}, {"from": "Brockwell", "relation": "Release", "to": "LISA", "width": 1}, {"from": "Brockwell", "relation": "Updated", "to": "renamed", "width": 1}, {"from": "Frontispiece", "relation": "In", "to": "Louvre", "width": 1}, {"from": "Louvre", "relation": "This", "to": "15)", "width": 1}, {"from": "Louvre", "relation": "other", "to": "Several", "width": 1}, {"from": "Louvre", "relation": "to", "to": "wished", "width": 1}, {"from": "Louvre", "relation": "left", "to": "He", "width": 1}, {"from": "Louvre", "relation": "(PRESUMED)", "to": "-PORTRAIT", "width": 1}, {"from": "Louvre", "relation": "is", "to": "It", "width": 1}, {"from": "Louvre", "relation": "In", "to": "ANNE", "width": 1}, {"from": "2", "relation": "ft", "to": "ins", "width": 1}, {"from": "2", "relation": "x", "to": "99", "width": 1}, {"from": "ins", "relation": "ft", "to": "3", "width": 1}, {"from": "ins", "relation": "6", "to": "By", "width": 1}, {"from": "ins", "relation": "13", "to": "About", "width": 1}, {"from": "By", "relation": "1", "to": "ft", "width": 1}, {"from": "By", "relation": "reading", "to": "agreement", "width": 1}, {"from": "ft", "relation": "4", "to": "by", "width": 1}, {"from": "77", "relation": "x", "to": "0", "width": 1}, {"from": "0", "relation": "x", "to": "32", "width": 1}, {"from": "0", "relation": "x", "to": "62", "width": 1}, {"from": "BROCKWELL", "relation": "Illustrated", "to": "with", "width": 1}, {"from": "Moreover,", "relation": "\u0027tis", "to": "\u0027Pencil", "width": 1}, {"from": "Moreover,", "relation": "he", "to": "be", "width": 1}, {"from": "\u0027\"", "relation": "This", "to": "to-day", "width": 1}, {"from": "CONTENTS", "relation": "His", "to": "I", "width": 1}, {"from": "I", "relation": "dare", "to": "mystical", "width": 1}, {"from": "I", "relation": "MONA", "to": "\"]", "width": 1}, {"from": "I", "relation": "portrait", "to": "The", "width": 1}, {"from": "I", "relation": "was", "to": "He", "width": 1}, {"from": "I", "relation": "MIND", "to": "HIS", "width": 1}, {"from": "Mona", "relation": "Lisa", "to": "II", "width": 1}, {"from": "Mona", "relation": "Lisa", "to": "her", "width": 1}, {"from": "II", "relation": "Plate", "to": "[Illustration:", "width": 1}, {"from": "II", "relation": "small", "to": "This", "width": 1}, {"from": "Annunciation", "relation": "In", "to": "III", "width": 1}, {"from": "III", "relation": "PLATE", "to": "[Illustration:", "width": 1}, {"from": "III", "relation": "is", "to": "It", "width": 1}, {"from": "III", "relation": "THE", "to": "]", "width": 1}, {"from": "Virgin", "relation": "of", "to": "IV", "width": 1}, {"from": "IV", "relation": "[Illustration:", "to": "\"", "width": 1}, {"from": "IV", "relation": "LAST", "to": "THE", "width": 1}, {"from": "The", "relation": "Last", "to": "V", "width": 1}, {"from": "The", "relation": "Project", "to": "works", "width": 1}, {"from": "The", "relation": "inscription", "to": "handwriting--viz", "width": 1}, {"from": "The", "relation": "drawing", "to": "Florence", "width": 1}, {"from": "The", "relation": "jointed", "to": "IX", "width": 1}, {"from": "The", "relation": "rhythm", "to": "productions", "width": 1}, {"from": "The", "relation": "only", "to": "Conception", "width": 1}, {"from": "The", "relation": "differences", "to": "St", "width": 1}, {"from": "The", "relation": "head", "to": "tenderness", "width": 1}, {"from": "The", "relation": "incident", "to": "divine", "width": 1}, {"from": "The", "relation": "singularly", "to": "VI", "width": 1}, {"from": "The", "relation": "young", "to": "Ludovico", "width": 1}, {"from": "The", "relation": "eyes", "to": "nature", "width": 1}, {"from": "The", "relation": "nose,", "to": "blood", "width": 1}, {"from": "The", "relation": "landscape", "to": "birthplace", "width": 1}, {"from": "The", "relation": "subject", "to": "Anghiari", "width": 1}, {"from": "The", "relation": "composition", "to": "lost", "width": 1}, {"from": "The", "relation": "spirit", "to": "age", "width": 1}, {"from": "The", "relation": "natural", "to": "knowledge", "width": 1}, {"from": "The", "relation": "copyright", "to": "work", "width": 1}, {"from": "The", "relation": "Foundation", "to": "States", "width": 1}, {"from": "The", "relation": "fee", "to": "Foundation", "width": 1}, {"from": "The", "relation": "person", "to": "refund", "width": 1}, {"from": "The", "relation": "invalidity", "to": "provisions", "width": 1}, {"from": "The", "relation": "Foundation\u2019s", "to": "64-6221541", "width": 1}, {"from": "The", "relation": "Foundation\u2019s", "to": "596-1887", "width": 1}, {"from": "V", "relation": "PLATE", "to": "[Illustration:", "width": 1}, {"from": "V", "relation": "The", "to": "40)]", "width": 1}, {"from": "Copy", "relation": "of", "to": "VI", "width": 1}, {"from": "VI", "relation": "[Illustration:", "to": "\"", "width": 1}, {"from": "Head", "relation": "of", "to": "VII", "width": 1}, {"from": "VII", "relation": "as", "to": "Leonardo,", "width": 1}, {"from": "VII", "relation": "PLATE", "to": "[Illustration:", "width": 1}, {"from": "VII", "relation": "this", "to": "Among", "width": 1}, {"from": "Portrait", "relation": "(presumed)", "to": "VIII", "width": 1}, {"from": "VIII", "relation": "IN", "to": "AGAIN", "width": 1}, {"from": "VIII", "relation": "PLATE", "to": "[Illustration:", "width": 1}, {"from": "Madonna,", "relation": "Infant", "to": "Anne", "width": 1}, {"from": "Anne", "relation": "and", "to": "St", "width": 1}, {"from": "In", "relation": "the", "to": "Florence", "width": 1}, {"from": "In", "relation": "the", "to": "times", "width": 1}, {"from": "In", "relation": "1472,", "to": "Painters", "width": 1}, {"from": "In", "relation": "that", "to": "\"St", "width": 1}, {"from": "In", "relation": "the", "to": "St", "width": 1}, {"from": "In", "relation": "1652", "to": "doorway", "width": 1}, {"from": "In", "relation": "1726", "to": "it", "width": 1}, {"from": "In", "relation": "1770", "to": "Mazza", "width": 1}, {"from": "In", "relation": "1796", "to": "dirt", "width": 1}, {"from": "In", "relation": "1820", "to": "effaced", "width": 1}, {"from": "In", "relation": "October", "to": "injury", "width": 1}, {"from": "In", "relation": "addition,", "to": "light", "width": 1}, {"from": "In", "relation": "patient", "to": "there", "width": 1}, {"from": "In", "relation": "a", "to": "man", "width": 1}, {"from": "In", "relation": "April", "to": "Bellini", "width": 1}, {"from": "In", "relation": "1499", "to": "reign", "width": 1}, {"from": "In", "relation": "April", "to": "1512", "width": 1}, {"from": "In", "relation": "the", "to": "wanderer", "width": 1}, {"from": "In", "relation": "1495", "to": "Giocondo", "width": 1}, {"from": "In", "relation": "January", "to": "completed", "width": 1}, {"from": "In", "relation": "the", "to": "sketches", "width": 1}, {"from": "In", "relation": "2001,", "to": "generations", "width": 1}, {"from": "Florence", "relation": "di", "to": "Leonardo", "width": 1}, {"from": "Florence", "relation": "In", "to": "--Annunciation", "width": 1}, {"from": "Vinci", "relation": "is", "to": "sunset", "width": 1}, {"from": "Vinci", "relation": "mother", "to": "Leonardo\u0027s", "width": 1}, {"from": "Outside", "relation": "a", "to": "inhabitants", "width": 1}, {"from": "Leonardo\u0027s", "relation": "traditional", "to": "exporter", "width": 1}, {"from": "Leonardo\u0027s", "relation": "father", "to": "wives", "width": 1}, {"from": "Leonardo", "relation": "thus", "to": "1469-1470", "width": 1}, {"from": "Leonardo", "relation": "may", "to": "time", "width": 1}, {"from": "Leonardo", "relation": "is", "to": "1288)", "width": 1}, {"from": "Leonardo", "relation": "continued", "to": "1477", "width": 1}, {"from": "Leonardo", "relation": "has", "to": "me", "width": 1}, {"from": "Leonardo", "relation": "had", "to": "Iscariot", "width": 1}, {"from": "Leonardo", "relation": "of", "to": "Some", "width": 1}, {"from": "Leonardo", "relation": "eventually", "to": "1500", "width": 1}, {"from": "Leonardo", "relation": "has", "to": "since", "width": 1}, {"from": "Leonardo", "relation": "was", "to": "St", "width": 1}, {"from": "Leonardo", "relation": "was", "to": "recorded", "width": 1}, {"from": "Leonardo", "relation": "was", "to": "open", "width": 1}, {"from": "Leonardo", "relation": "was", "to": "It", "width": 1}, {"from": "18)", "relation": "Although", "to": "Verrocchio", "width": 1}, {"from": "Verrocchio", "relation": "was", "to": "him", "width": 1}, {"from": "]", "relation": "The", "to": "certainty", "width": 1}, {"from": "]", "relation": "HIS", "to": "himself", "width": 1}, {"from": "]", "relation": "On", "to": "others", "width": 1}, {"from": "His", "relation": "age", "to": "1452", "width": 1}, {"from": "His", "relation": "versatility", "to": "revealed", "width": 1}, {"from": "His", "relation": "powers,", "to": "adoption", "width": 1}, {"from": "His", "relation": "strong", "to": "devices", "width": 1}, {"from": "Is", "relation": "it", "to": "energy", "width": 1}, {"from": "HIS", "relation": "EARLY", "to": "them", "width": 1}, {"from": "HIS", "relation": "DEATH", "to": "away", "width": 1}, {"from": "HIS", "relation": "MAXIMS", "to": "soul", "width": 1}, {"from": "HIS", "relation": "DESCENDANTS", "to": "Rome", "width": 1}, {"from": "him", "relation": "at", "to": "Donato", "width": 1}, {"from": "There", "relation": "also", "to": "years", "width": 1}, {"from": "There", "relation": "is", "to": "music", "width": 1}, {"from": "There", "relation": "are", "to": "agreement", "width": 1}, {"from": "There", "relation": "are", "to": "works", "width": 1}, {"from": "He", "relation": "also,", "to": "art", "width": 1}, {"from": "He", "relation": "long", "to": "torso", "width": 1}, {"from": "He", "relation": "certainly", "to": "it", "width": 1}, {"from": "He", "relation": "may", "to": "Sforza", "width": 1}, {"from": "He", "relation": "seems", "to": "before", "width": 1}, {"from": "He", "relation": "who", "to": "miracle", "width": 1}, {"from": "He", "relation": "went", "to": "grief", "width": 1}, {"from": "He", "relation": "who", "to": "pulses", "width": 1}, {"from": "He", "relation": "observed", "to": "picture", "width": 1}, {"from": "He", "relation": "was", "to": "form", "width": 1}, {"from": "\"", "relation": "The", "to": "pupils", "width": 1}, {"from": "\"", "relation": "In", "to": "house", "width": 1}, {"from": "\"", "relation": "It", "to": "(No", "width": 1}, {"from": "\"", "relation": "Instantly", "to": "temperaments", "width": 1}, {"from": "\"", "relation": "*", "to": "\"", "width": 1}, {"from": "\"", "relation": "This", "to": "Milan", "width": 1}, {"from": "\"", "relation": "In", "to": "Father", "width": 1}, {"from": "\"", "relation": "THE", "to": "age", "width": 1}, {"from": "\"", "relation": "On", "to": "XII", "width": 1}, {"from": "\"", "relation": "He", "to": "1504", "width": 1}, {"from": "\"", "relation": "Leonardo", "to": "century", "width": 1}, {"from": "\"", "relation": "Although", "to": "Standard", "width": 1}, {"from": "\"", "relation": "One", "to": "Museum", "width": 1}, {"from": "\"", "relation": "It", "to": "existence", "width": 1}, {"from": "\"", "relation": "The", "to": "imagination", "width": 1}, {"from": "\"", "relation": "\"May", "to": "Melzi", "width": 1}, {"from": "\"", "relation": "HIS", "to": "painting", "width": 1}, {"from": "\"", "relation": "It", "to": "World", "width": 1}, {"from": "\"", "relation": "Leonardo", "to": "coupled", "width": 1}, {"from": "\"", "relation": "Leonardo", "to": "SUPERMAN", "width": 1}, {"from": "Unfortunately", "relation": "very", "to": "us", "width": 1}, {"from": "Indeed", "relation": "there", "to": "work", "width": 1}, {"from": "work", "relation": "course,", "to": "Of", "width": 1}, {"from": "work", "relation": "terms", "to": "Additional", "width": 1}, {"from": "work", "relation": "a", "to": "3,", "width": 1}, {"from": "works", "relation": "You", "to": "\u2022", "width": 1}, {"from": "To", "relation": "rightly", "to": "colourist", "width": 1}, {"from": "To", "relation": "January", "to": "Uffizi", "width": 1}, {"from": "To", "relation": "about", "to": "Museum", "width": 1}, {"from": "time", "relation": "one", "to": "\"Every", "width": 1}, {"from": "-THE", "relation": "VIRGIN", "to": "Gallery", "width": 1}, {"from": "-THE", "relation": "LAST", "to": "St", "width": 1}, {"from": "by", "relation": "3", "to": "in", "width": 1}, {"from": "83", "relation": "x", "to": "1", "width": 1}, {"from": "1", "relation": "x", "to": "70", "width": 1}, {"from": "1", "relation": "Terms", "to": "General", "width": 1}, {"from": "1", "relation": "paragraph", "to": "See", "width": 1}, {"from": "1", "relation": "you", "to": "Unless", "width": 1}, {"from": "1", "relation": "through", "to": "1", "width": 1}, {"from": "1", "relation": "or", "to": "7", "width": 1}, {"from": "1", "relation": "or", "to": "8", "width": 1}, {"from": "1", "relation": "not", "to": "Do", "width": 1}, {"from": "1", "relation": "with", "to": "License", "width": 1}, {"from": "1", "relation": "alternate", "to": "Any", "width": 1}, {"from": "1", "relation": "You", "to": "\u2022", "width": 1}, {"from": "1", "relation": "WARRANTY,", "to": "LIMITED", "width": 1}, {"from": "1", "relation": "AGREE", "to": "YOU", "width": 1}, {"from": "1", "relation": "for", "to": "Except", "width": 1}, {"from": "himself", "relation": "which", "to": "),", "width": 1}, {"from": "That", "relation": "it", "to": "Credi", "width": 1}, {"from": "That", "relation": "Leonardo", "to": "Mass", "width": 1}, {"from": "That", "relation": "he", "to": "probable", "width": 1}, {"from": "It", "relation": "is", "to": "(No", "width": 1}, {"from": "It", "relation": "has,", "to": "Cracow", "width": 1}, {"from": "It", "relation": "was,", "to": "Novara", "width": 1}, {"from": "It", "relation": "is", "to": "original", "width": 1}, {"from": "It", "relation": "was", "to": "completion", "width": 1}, {"from": "It", "relation": "will", "to": "inconvenience", "width": 1}, {"from": "It", "relation": "gives", "to": "unity", "width": 1}, {"from": "It", "relation": "was", "to": "Apostles", "width": 1}, {"from": "It", "relation": "was", "to": "Academy", "width": 1}, {"from": "It", "relation": "was", "to": "F\u00e9ronni\u00e8re", "width": 1}, {"from": "It", "relation": "is", "to": "beauty", "width": 1}, {"from": "It", "relation": "depicts", "to": "1440", "width": 1}, {"from": "It", "relation": "is,", "to": "studied", "width": 1}, {"from": "It", "relation": "was", "to": "task", "width": 1}, {"from": "It", "relation": "may", "to": "agreement", "width": 1}, {"from": "It", "relation": "exists", "to": "life", "width": 1}, {"from": "(No", "relation": "painting", "to": "Another", "width": 1}, {"from": "(No", "relation": "however,", "to": "He,", "width": 1}, {"from": "(No", "relation": "now", "to": "),", "width": 1}, {"from": "Such", "relation": "uncertainties", "to": "infancy", "width": 1}, {"from": "This", "relation": "panel", "to": "St", "width": 1}, {"from": "This", "relation": "the", "to": "master", "width": 1}, {"from": "This", "relation": "\"Baptism", "to": "age", "width": 1}, {"from": "This", "relation": "drawing", "to": "Venice", "width": 1}, {"from": "This", "relation": "is", "to": "contemporaries", "width": 1}, {"from": "This", "relation": "picture,", "to": "\u00a39000", "width": 1}, {"from": "This", "relation": "website", "to": "eBooks", "width": 1}, {"from": "Uffizi", "relation": "which", "to": "Zenobius,\"", "width": 1}, {"from": ",", "relation": "that", "to": "abbreviations", "width": 1}, {"from": ",", "relation": "and", "to": "Collection", "width": 1}, {"from": ",", "relation": "who", "to": "sufferings", "width": 1}, {"from": "On", "relation": "January", "to": "St", "width": 1}, {"from": "St", "relation": "Baptist,", "to": "John", "width": 1}, {"from": "St", "relation": "and", "to": "Bernard,", "width": 1}, {"from": "St", "relation": "now", "to": "),", "width": 1}, {"from": "St", "relation": "Emilio", "to": "Signor", "width": 1}, {"from": "St", "relation": "LEAVES", "to": "LEONARDO", "width": 1}, {"from": "Bernardo", "relation": "in", "to": "account", "width": 1}, {"from": "He,", "relation": "however,", "to": "Lippi", "width": 1}, {"from": "John", "relation": "the", "to": "later", "width": 1}, {"from": "John", "relation": "the", "to": "accent", "width": 1}, {"from": "John", "relation": "who", "to": "salt-cellar", "width": 1}, {"from": "Jerome", "relation": "in", "to": "_terraverte_", "width": 1}, {"from": "Its", "relation": "authenticity", "to": "Windsor", "width": 1}, {"from": "Cardinal", "relation": "Fesch,", "to": "Rome", "width": 1}, {"from": "As", "relation": "a", "to": "executed", "width": 1}, {"from": "As", "relation": "early", "to": "ruined", "width": 1}, {"from": "Vasari", "relation": "tells", "to": "vestments", "width": 1}, {"from": "Vasari", "relation": "is", "to": "unfinished", "width": 1}, {"from": "Vasari", "relation": "informs", "to": "Sacrament", "width": 1}, {"from": "FIRST", "relation": "VISIT", "to": "secrets", "width": 1}, {"from": "Maria", "relation": "delle", "to": "Milan", "width": 1}, {"from": "Maria", "relation": "delle", "to": "child", "width": 1}, {"from": "Milan", "relation": "at", "to": "Francesco", "width": 1}, {"from": "Milan", "relation": "HEAD", "to": "--THE", "width": 1}, {"from": "Milan", "relation": "de", "to": "Lionard", "width": 1}, {"from": "About", "relation": "1489-1490", "to": "sculptor", "width": 1}, {"from": "16", "relation": "x", "to": "8", "width": 1}, {"from": "09)]", "relation": "He", "to": "buildings", "width": 1}, {"from": "it", "relation": "abides", "to": "Time", "width": 1}, {"from": "IN", "relation": "THE", "to": "engineer", "width": 1}, {"from": "IN", "relation": "ROME", "to": "X", "width": 1}, {"from": "BACK", "relation": "IN", "to": "Ludovico", "width": 1}, {"from": "Ludovico", "relation": "may", "to": "Corte", "width": 1}, {"from": "Among", "relation": "his", "to": "Aragon", "width": 1}, {"from": "Among", "relation": "these", "to": "Sciences", "width": 1}, {"from": "--COPY", "relation": "OF", "to": "Gianpetrino", "width": 1}, {"from": "),", "relation": "now", "to": "Supper", "width": 1}, {"from": ")", "relation": "for", "to": "S", "width": 1}, {"from": ")", "relation": "by", "to": "completed", "width": 1}, {"from": "S", "relation": "the", "to": "Before", "width": 1}, {"from": "S", "relation": "Information", "to": "General", "width": 1}, {"from": "Subsequently", "relation": "the", "to": "flooded", "width": 1}, {"from": "But", "relation": "think,", "to": "mind", "width": 1}, {"from": "Vainly", "relation": "my", "to": "holiness", "width": 1}, {"from": "Can", "relation": "the", "to": "find", "width": 1}, {"from": "Padre", "relation": "Bandelli", "to": "Lord", "width": 1}, {"from": "Well,", "relation": "what", "to": "his", "width": 1}, {"from": "Some", "relation": "states", "to": "damages", "width": 1}, {"from": "Having", "relation": "discarded", "to": "Beatrice", "width": 1}, {"from": "Leonardo,", "relation": "by", "to": "married", "width": 1}, {"from": "Cecilia", "relation": "graciously", "to": "her", "width": 1}, {"from": "John,\"", "relation": "now", "to": "House", "width": 1}, {"from": "Though", "relation": "little", "to": "draughtsmanship", "width": 1}, {"from": "entered", "relation": "the", "to": "city", "width": 1}, {"from": "After", "relation": "apparently", "to": "Cese-natico", "width": 1}, {"from": "44)", "relation": "This", "to": "Crivelli", "width": 1}, {"from": "Lisa", "relation": "di", "to": "Gherardini", "width": 1}, {"from": "Vasari\u0027s", "relation": "eulogy", "to": "reproduced", "width": 1}, {"from": "Contrast", "relation": "the", "to": "creature", "width": 1}, {"from": "for", "relation": "a", "to": "\u00a31800", "width": 1}, {"from": "BATTLE", "relation": "OF", "to": "Vecchio", "width": 1}, {"from": "a", "relation": "princely", "to": "income", "width": 1}, {"from": "-MADONNA,", "relation": "INFANT", "to": "ST", "width": 1}, {"from": "29)", "relation": "Painted", "to": "assistants", "width": 1}, {"from": "Germain-en", "relation": "Laye!", "to": "\"Mr", "width": 1}, {"from": "painting", "relation": "men,", "to": "Miserable", "width": 1}, {"from": "They", "relation": "prove", "to": "left", "width": 1}, {"from": "\"did", "relation": "not", "to": "philosopher", "width": 1}, {"from": "Tears", "relation": "come", "to": "brain", "width": 1}, {"from": "A", "relation": "beautiful", "to": "not", "width": 1}, {"from": "Every", "relation": "difficulty", "to": "effort", "width": 1}, {"from": "form", "relation": "you", "to": "org),", "width": 1}, {"from": "Creating", "relation": "the", "to": "U", "width": 1}, {"from": "U", "relation": "Gutenberg\u2122", "to": "Project", "width": 1}, {"from": "U", "relation": "to", "to": "Contributions", "width": 1}, {"from": "copyright", "relation": "law", "to": "royalties", "width": 1}, {"from": "copyright", "relation": "law", "to": "charges", "width": 1}, {"from": "copyright", "relation": "law", "to": "collection", "width": 1}, {"from": "Special", "relation": "rules,", "to": "trademark", "width": 1}, {"from": "trademark", "relation": "Gutenberg", "to": "Project", "width": 1}, {"from": "trademark", "relation": "Gutenberg\u201d", "to": "\u201cProject", "width": 1}, {"from": "Redistribution", "relation": "is", "to": "redistribution", "width": 1}, {"from": "Nearly", "relation": "all", "to": "States", "width": 1}, {"from": "States", "relation": "donations", "to": "International", "width": 1}, {"from": "Copyright", "relation": "laws", "to": "change", "width": 1}, {"from": "7", "relation": "and", "to": "holder", "width": 1}, {"from": "Do", "relation": "not", "to": "Gutenberg\u2122", "width": 1}, {"from": "License", "relation": "\u2022", "to": "\u201d", "width": 1}, {"from": "However,", "relation": "if", "to": "(www", "width": 1}, {"from": "Foundation", "relation": "payments", "to": "Royalty", "width": 1}, {"from": "Royalty", "relation": "payments", "to": "returns", "width": 1}, {"from": "3,", "relation": "the", "to": "fees", "width": 1}, {"from": "3,", "relation": "this", "to": "PURPOSE", "width": 1}, {"from": "Contact", "relation": "the", "to": "below", "width": 1}, {"from": "Despite", "relation": "these", "to": "equipment", "width": 1}, {"from": "equipment", "relation": "about", "to": "Information", "width": 1}, {"from": "LIMITED", "relation": "RIGHT", "to": "from", "width": 1}, {"from": "YOU", "relation": "AGREE", "to": "DAMAGE", "width": 1}, {"from": "INDEMNITY", "relation": "-", "to": "cause", "width": 1}, {"from": "Information", "relation": "about", "to": "computers", "width": 1}, {"from": "Information", "relation": "about", "to": "Service", "width": 1}, {"from": "Volunteers", "relation": "and", "to": "come", "width": 1}, {"from": "federal", "relation": "laws", "to": "laws", "width": 1}, {"from": "laws", "relation": "alone", "to": "staff", "width": 1}, {"from": "org/contact", "relation": "Section", "to": "4", "width": 1}, {"from": "Many", "relation": "small", "to": "IRS", "width": 1}, {"from": "Compliance", "relation": "requirements", "to": "requirements", "width": 1}, {"from": "We", "relation": "do", "to": "compliance", "width": 1}, {"from": "While", "relation": "we", "to": "donate", "width": 1}, {"from": "Please", "relation": "check", "to": "addresses", "width": 1}, {"from": "Donations", "relation": "are", "to": "donations", "width": 1}, {"from": "Hart", "relation": "was", "to": "anyone", "width": 1}, {"from": "For", "relation": "forty", "to": "support", "width": 1}, {"from": "unless", "relation": "a", "to": "included", "width": 1}, {"from": "Thus,", "relation": "we", "to": "edition", "width": 1}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": true,
+            "type": "dynamic"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+                      network.on("stabilizationProgress", function(params) {
+                          document.getElementById('loadingBar').removeAttribute("style");
+                          var maxWidth = 496;
+                          var minWidth = 20;
+                          var widthFactor = params.iterations/params.total;
+                          var width = Math.max(minWidth,maxWidth * widthFactor);
+                          document.getElementById('bar').style.width = width + 'px';
+                          document.getElementById('text').innerHTML = Math.round(widthFactor*100) + '%';
+                      });
+                      network.once("stabilizationIterationsDone", function() {
+                          document.getElementById('text').innerHTML = '100%';
+                          document.getElementById('bar').style.width = '496px';
+                          document.getElementById('loadingBar').style.opacity = 0;
+                          // really clean the dom element
+                          setTimeout(function () {document.getElementById('loadingBar').style.display = 'none';}, 500);
+                      });
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    </body>
+</html>

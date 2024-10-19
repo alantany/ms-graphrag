@@ -1,0 +1,10 @@
+streamlit
+networkx
+matplotlib
+sentence-transformers
+faiss-cpu
+openai>=1.0.0
+pandas
+tiktoken
+requests
+pyvis
