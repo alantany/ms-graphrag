@@ -8,3 +8,7 @@ pandas
 tiktoken
 requests
 pyvis
+PyPDF2
+jieba
+nltk
+tiktoken
