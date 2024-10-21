@@ -377,18 +377,45 @@ def fix_json(json_string):
 def extract_entities_and_relations(text):
     logging.debug("开始提取实体和关系")
     
+    # 首先提取患者姓名
+    patient_name_prompt = f"""
+    请从以下电子病历文本中提取患者姓名。
+    姓名格式必须是"姓氏+某某"，例如"张某某"或"李某某"。
+    如果文本中没有明确的姓名，请返回"患者某某"。
+    只需返回一个姓名，不需要其他解释。
+
+    电子病历文本：
+    {text[:1000]}  # 只使用前1000个字符来提取姓名
+    """
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "你是一个专门提取患者姓名的AI助手。请只返回一个符合'姓氏+某某'格式的姓名。"},
+                {"role": "user", "content": patient_name_prompt}
+            ],
+            max_tokens=50,
+            temperature=0.3
+        )
+        patient_name = response.choices[0].message.content.strip()
+        if not re.match(r'^[\u4e00-\u9fa5]某某$', patient_name):
+            patient_name = "患者某某"
+        logging.info(f"提取的患者姓名: {patient_name}")
+    except Exception as e:
+        logging.error(f"提取患者姓名时发生错误: {str(e)}")
+        patient_name = "患者某某"
+
+    # 然后提取其他实体和关系
     text_parts = [text[i:i+1500] for i in range(0, len(text), 1500)]
-    all_entities = []
+    all_entities = [{"name": patient_name, "type": "患者姓名"}]
     all_relations = []
-    patient_name = None
 
     for part in text_parts:
         prompt = f"""
-        请仔细分析以下电子病历文本，并提取重要的医疗实体和它们之间的关系。
-        注意：不要创建通用的"患者"实体，而是直接使用患者的姓名（如"某某"）作为实体。
+        请仔细分析以下电子病历文本，并提取重要的医疗实体和它们与患者"{patient_name}"之间的关系。
 
         实体类型可能包括但不限于：
-        - 患者姓名（通用的"患者"应该属于患者姓名）
         - 症状
         - 诊断
         - 治疗方法
@@ -407,9 +434,10 @@ def extract_entities_and_relations(text):
         - "相关"（患者姓名与其他所有实体）
 
         特别注意：
-        1. 所有实体都必须与患者姓名建立直接关系。如果无法确定具体关系类型，请使用"相关"。
+        1. 所有实体都必须与患者"{patient_name}"建立直接关系。如果无法确定具体关系类型，请使用"相关"。
         2. 确保每个检查指标、症状、诊断等都作为独立的实体，并与患者建立直接关系。
         3. 不要遗漏任何可能的实体，即使它们看起来是次要的或不确定的。
+        4. 不要创建新的患者姓名或更改已给定的患者姓名。
 
         请以JSON格式输出，格式如下：
         {{
@@ -418,23 +446,20 @@ def extract_entities_and_relations(text):
                 ...
             ],
             "relations": [
-                {{"from": "患者姓名", "to": "实体名称", "type": "关系类型"}},
+                {{"from": "{patient_name}", "to": "实体名称", "type": "关系类型"}},
                 ...
             ]
         }}
 
-        请确保所有实体都与患者姓名建立直接关系。
-
         电子病历文本：
         {part}
         """
-        logging.debug(f"处理文本部分，长度：{len(part)}")
-
+        
         try:
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "你是一个专门分析电子病历的AI助手，擅长提取医疗实体和关系。请严格按照指定的JSON格式输出结果，特别注意将所有实体与患者姓名建立直接关系。"},
+                    {"role": "system", "content": "你是一个专门分析电子病历的AI助手，擅长提取医疗实体和关系。请严格按照指定的JSON格式输出结果。"},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=2000,
@@ -444,49 +469,19 @@ def extract_entities_and_relations(text):
             content = response.choices[0].message.content.strip()
             logging.info(f"GPT API 响应内容：{content[:200]}...")  # 记录前200个字符
 
-            try:
-                # 尝试提取 JSON 部分
-                json_match = re.search(r'\{[\s\S]*\}', content)
-                if json_match:
-                    json_content = json_match.group()
-                    logging.info(f"提取的 JSON 内容：{json_content[:200]}...")  # 记录前200个字符
-                else:
-                    logging.error("无法从响应中提取 JSON 内容")
-                    continue
-
-                # 尝试修复和解析 JSON
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if json_match:
+                json_content = json_match.group()
                 fixed_json = fix_json(json_content)
                 parsed_content = json.loads(fixed_json)
 
                 entities = parsed_content.get('entities', [])
                 relations = parsed_content.get('relations', [])
 
-                # 找到患者姓名
-                for entity in entities:
-                    if entity['type'] == '患者姓名':
-                        patient_name = entity['name']
-                        break
-
-                if patient_name:
-                    # 确保所有实体都与患者建立关系
-                    for entity in entities:
-                        if entity['name'] != patient_name:
-                            relation_exists = any(r['from'] == patient_name and r['to'] == entity['name'] for r in relations)
-                            if not relation_exists:
-                                relations.append({
-                                    "from": patient_name,
-                                    "to": entity['name'],
-                                    "type": "相关"
-                                })
-
                 all_entities.extend(entities)
                 all_relations.extend(relations)
-            except json.JSONDecodeError as e:
-                logging.error(f"JSON 解析失败: {str(e)}")
-                logging.error(f"问题 JSON: {fixed_json}")
-            except Exception as e:
-                logging.error(f"处理 GPT 响应时发生错误: {str(e)}")
-                logging.error(f"问题 JSON: {json_content}")
+            else:
+                logging.error("无法从响应中提取 JSON 内容")
 
         except Exception as e:
             logging.exception(f"处理文本部分时发生异常: {str(e)}")
@@ -771,7 +766,7 @@ def main():
                 st.session_state.current_file = os.path.basename(file_path)
                 st.rerun()  # 重新运行应用以更新显示
         
-        # 添加调试信息
+        # 添加试信息
         st.write(f"当前文件: {st.session_state.current_file}")
         st.write(f"图中节点数: {len(st.session_state.nodes) if st.session_state.nodes else 0}")
         st.write(f"句子数: {len(st.session_state.sentences) if st.session_state.sentences else 0}")
@@ -877,7 +872,7 @@ def main():
             if load_button.button("加载演示数据"):
                 file_path = prepare_data()
                 if file_path is None:
-                    st.error("无法准备数据，请检查网络连接URL。")
+                    st.error("无法准备据，请检查网络连接URL。")
                 else:
                     st.success("演示数据已加载")
                     st.session_state.demo_data_loaded = True
