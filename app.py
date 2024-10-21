@@ -16,6 +16,17 @@ import PyPDF2
 import io
 import jieba
 import string
+import logging
+import threading
+from transformers import BertTokenizer, BertModel
+import torch
+import jieba.posseg as pseg
+
+# 配置日志
+logging.basicConfig(level=logging.DEBUG, 
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    filename='app.log',
+                    filemode='w')  # 将 'a' 改为 'w'
 
 # 定义全局client
 client = OpenAI(
@@ -57,9 +68,15 @@ def clean_text(text):
 
 @st.cache_resource
 def init_models():
-    embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+    st.write("正在加载 SentenceTransformer 模型...")
+    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    st.write("SentenceTransformer 模型加载完成")
+    
+    st.write("正在初始化 FAISS 索引...")
     dimension = embedding_model.get_sentence_embedding_dimension()
     index = faiss.IndexFlatL2(dimension)
+    st.write("FAISS 索引初始化完成")
+    
     return embedding_model, index
 
 def create_knowledge_graph(file_path):
@@ -89,60 +106,134 @@ def create_knowledge_graph(file_path):
 
 def visualize_graph_interactive(G):
     net = Network(notebook=True, width="100%", height="500px", cdn_resources="remote")
-    net.from_nx(G)
+    
+    for node, data in G.nodes(data=True):
+        label = f"{node}\n({data.get('type', 'Unknown')})"
+        net.add_node(node, label=label, title=label)
+    
+    for edge in G.edges(data=True):
+        title = edge[2].get('type', 'Unknown')
+        net.add_edge(edge[0], edge[1], title=title)
+    
     net.save_graph("graph.html")
     with open("graph.html", "r", encoding="utf-8") as f:
         html = f.read()
     st.components.v1.html(html, width=700, height=500)
 
-def query_graph(G, query, embedding_model, index, nodes):
-    query_embedding = embedding_model.encode([query])[0]
-    _, I = index.search(np.array([query_embedding]).astype('float32'), k=5)
+def query_graph(_G, query, _embedding_model, index, nodes):
+    if not nodes:
+        return "图中没有节点可供查询。"
     
-    relevant_nodes = [nodes[i] for i in I[0] if 0 <= i < len(nodes)]
+    # 使用jieba进行分词和词性标注
+    words = pseg.cut(query)
+    entities = [word for word, flag in words if flag.startswith('n') or flag.startswith('v')]  # 包括名词和动词
+    
     context = []
-    for node in relevant_nodes:
-        neighbors = list(G.neighbors(node))
-        edges = G.edges(node, data=True)
-        relations = []
-        for edge in edges:
-            if len(edge) == 3:  # 如果边包含数据
-                neighbor, data = edge[1], edge[2]
-                if neighbor != node:  # 避免自环
-                    relations.append(f"{node} 与 {neighbor} 的关系: {data.get('relation', '相关')}")
-        if relations:
-            context.append(f"节点 '{node}' 的关系:\n" + "\n".join(relations))
     
-    return "\n\n".join(context)
+    # 直接在图中搜索这些实体
+    for entity in entities:
+        if entity in _G:
+            neighbors = list(_G.neighbors(entity))
+            edges = _G.edges(entity, data=True)
+            relations = [f"{entity} 与 {neighbor} 的关系: {data.get('type', '相关')}" 
+                         for _, neighbor, data in edges if neighbor != entity]
+            if relations:
+                context.append(f"实体 '{entity}' 的关系:\n" + "\n".join(relations))
+    
+    # 如果没有直接匹配的实体，使用模糊匹配
+    if not context:
+        for node in _G.nodes():
+            if any(entity in node for entity in entities):
+                neighbors = list(_G.neighbors(node))
+                edges = _G.edges(node, data=True)
+                relations = [f"{node} 与 {neighbor} 的关系: {data.get('type', '相关')}" 
+                             for _, neighbor, data in edges if neighbor != node]
+                if relations:
+                    context.append(f"相关节点 '{node}' 的关系:\n" + "\n".join(relations))
+    
+    # 如果仍然没有匹配，尝试查找患者姓名
+    if not context:
+        patient_nodes = [node for node, data in _G.nodes(data=True) if data.get('type') == '患者姓名']
+        if patient_nodes:
+            patient = patient_nodes[0]
+            edges = _G.edges(patient, data=True)
+            relations = [f"{patient} 与 {neighbor} 的关系: {data.get('type', '相关')}" 
+                         for _, neighbor, data in edges if neighbor != patient]
+            if relations:
+                context.append(f"患者 '{patient}' 的关系:\n" + "\n".join(relations))
+    
+    # 添加日志输出
+    logging.info(f"查询: {query}")
+    logging.info(f"识别的实体: {entities}")
+    logging.info(f"生成的上下文: {context}")
+    
+    return "\n\n".join(context) if context else "未找到相关信息。"
 
 def generate_answer(query, context):
+    logging.info(f"生成答案的查询: {query}")
+    logging.info(f"生成答案的上下文: {context}")
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that answers questions based on the given context."},
-            {"role": "user", "content": f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"}
+            {"role": "system", "content": "你是一个医疗助手，根据给定的上下文信息回答问题。上下文包含了从知识图谱中提取的实体关系信息。请仔细分析这些关系，并基于它们来回答问题。如果上下文中没有直接相关的信息，请尝试推断或说明无法回答。"},
+            {"role": "user", "content": f"知识图谱中的实体关系信息：\n{context}\n\n问题：{query}\n\n请根据上述实体关系信息回答问题，如果信息不足，请说明并尝试推断可能的答案。"}
         ],
-        max_tokens=300  # 增加到300或更多
+        max_tokens=300
     )
-    return response.choices[0].message.content.strip()
+    answer = response.choices[0].message.content.strip()
+    logging.info(f"生成的答案: {answer}")
+    return answer
 
-def vector_rag(text, query, embedding_model, index, sentences):
-    query_embedding = embedding_model.encode([query])[0]
-    _, I = index.search(np.array([query_embedding]).astype('float32'), k=5)
-    
-    context = [sentences[i] for i in I[0] if 0 <= i < len(sentences)]
-    return "\n".join(context)
+def vector_rag(text, query, _embedding_model, sentence_index, sentences):
+    if not sentences:
+        return "没有可供查询的句子。"
+    query_embedding = encode_text(query, _embedding_model)
+    try:
+        _, I = sentence_index.search(np.array([query_embedding]), k=min(5, len(sentences)))
+        context = [sentences[i] for i in I[0] if 0 <= i < len(sentences)]
+        return "\n".join(context)
+    except Exception as e:
+        logging.error(f"在vector_rag中搜索相似句子: {str(e)}")
+        return "在处理查询时出现错误。"
 
-def process_query(query, G, embedding_model, index, nodes, sentences, text):
-    graph_context = query_graph(G, query, embedding_model, index, nodes)
-    vector_context = vector_rag(text, query, embedding_model, index, sentences)
-    
-    graph_answer = generate_answer(query, graph_context)
-    vector_answer = generate_answer(query, vector_context)
-    
-    comparison = compare_results(query, graph_context, graph_answer, vector_context, vector_answer)
-    
-    return graph_context, graph_answer, vector_context, vector_answer, comparison
+@st.cache_data
+def process_query(query, _G, _embedding_model, _index, nodes, sentences, text, _sentence_index):
+    logging.info(f"处理查询: {query}")
+    try:
+        start_time = time.time()
+
+        graph_start = time.time()
+        graph_context = query_graph(_G, query, _embedding_model, _index, nodes)
+        graph_time = time.time() - graph_start
+        logging.info(f"图谱查询耗时: {graph_time:.2f}秒")
+
+        vector_start = time.time()
+        vector_context = vector_rag(text, query, _embedding_model, _sentence_index, sentences)
+        vector_time = time.time() - vector_start
+        logging.info(f"向量检索耗时: {vector_time:.2f}秒")
+
+        graph_answer_start = time.time()
+        graph_answer = generate_answer(query, graph_context)
+        graph_answer_time = time.time() - graph_answer_start
+        logging.info(f"图谱答案生成耗时: {graph_answer_time:.2f}秒")
+
+        vector_answer_start = time.time()
+        vector_answer = generate_answer(query, vector_context)
+        vector_answer_time = time.time() - vector_answer_start
+        logging.info(f"向量答案生成耗时: {vector_answer_time:.2f}秒")
+
+        comparison_start = time.time()
+        comparison = compare_results(query, graph_context, graph_answer, vector_context, vector_answer)
+        comparison_time = time.time() - comparison_start
+        logging.info(f"结果比较耗时: {comparison_time:.2f}秒")
+
+        total_time = time.time() - start_time
+        logging.info(f"总查询处理时间: {total_time:.2f}秒")
+        
+        return graph_context, graph_answer, vector_context, vector_answer, comparison
+    except Exception as e:
+        logging.error(f"处理查询时出错: {str(e)}")
+        return "处理查询时出错", "无法生成答案", "处理查询时出错", "无法生成答案", "无法比较结果"
 
 def on_query_submit():
     query = st.session_state.query_input
@@ -150,7 +241,8 @@ def on_query_submit():
         graph_context, graph_answer, vector_context, vector_answer, comparison = process_query(
             query, st.session_state.G, st.session_state.embedding_model, 
             st.session_state.index, st.session_state.nodes, 
-            st.session_state.sentences, st.session_state.text
+            st.session_state.sentences, st.session_state.text,
+            st.session_state.sentence_index  # 添加这个参数
         )
         st.session_state.last_query = query
         st.session_state.graph_context = graph_context
@@ -160,7 +252,7 @@ def on_query_submit():
 
 def compare_results(query, graph_context, graph_answer, vector_context, vector_answer):
     comparison_prompt = f"""
-    请比较以下两种RAG方法的结果，并给出评价：
+    请比下两种RAG方法的结果，并给评价：
 
     查询: {query}
 
@@ -173,63 +265,595 @@ def compare_results(query, graph_context, graph_answer, vector_context, vector_a
     答案: {vector_answer}
 
     请从以下几个方面进行分析：
-    1. 上下文相关性：哪种方法提供的上下文更相关？
-    2. 答案质量：哪种方法的答案更准确、全面？
-    3. 信息丰富度：哪种方法提供了更多有用的信息？
-    4. 整体表现：综合考虑，哪种方法在回答这个问题时表现更好？
+    1. 上下文相关性：哪种方法提供的上下文更关？
+    2. 答案量：哪种方法的答案更准确、全面？
+    3. 信息丰富度：哪种方法提供了更多有用信息？
+    4. 整体表现：综哪种方法在回答这个问题时现更好？
 
-    请给出详细的分析和解释。
+    请给出详细分析和解。
     """
 
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
-            {"role": "system", "content": "你是一个专门分析和比较不同RAG方法的AI助手。"},
+            {"role": "system", "content": "你是一个专门分析和比较不同RAG方法AI助手。"},
             {"role": "user", "content": comparison_prompt}
         ],
         max_tokens=500
     )
     return response.choices[0].message.content.strip()
 
+@st.cache_data
+def upload_and_process_pdf(uploaded_file):
+    if uploaded_file is not None:
+        logging.info(f"PDF文件上传成功: {uploaded_file.name}")
+        # 读取PDF内容
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+        
+        logging.info(f"PDF文本提取完成，长度: {len(text)} 字符")
+        
+        # 保存文本文件
+        file_path = os.path.join("uploaded_pdfs", uploaded_file.name.replace('.pdf', '.txt'))
+        with open(file_path, 'w', encoding='utf-8') as file:
+            file.write(text)
+        
+        logging.info(f"PDF文本已保存到: {file_path}")
+        return file_path
+    return None
+
+def create_knowledge_graph_chinese(file_path):
+    G = nx.Graph()
+    with open(file_path, 'r', encoding='utf-8') as file:
+        text = file.read()
+    
+    logging.info(f"文件内容预览: {text[:200]}...")
+    
+    extracted_data = extract_entities_and_relations(text)
+    
+    logging.info(f"提取的数据: {extracted_data}")
+    
+    if not extracted_data or 'entities' not in extracted_data or 'relations' not in extracted_data:
+        logging.warning("无法从文本中提取实体和关系。使用备用方法创建图。")
+        return create_fallback_graph(text)
+    
+    # 创建一字典来存储患者
+    patient_names = set()
+    
+    for entity in extracted_data['entities']:
+        if entity['type'] == '患者姓名':
+            patient_names.add(entity['name'])
+        G.add_node(entity['name'], type=entity['type'])
+    
+    for relation in extracted_data['relations']:
+        # 如果关系的一端是"患者"，我们将其替换为实际的患者姓名
+        if relation['from'] == '患者' and patient_names:
+            relation['from'] = list(patient_names)[0]
+        if relation['to'] == '患者' and patient_names:
+            relation['to'] = list(patient_names)[0]
+        
+        G.add_edge(relation['from'], relation['to'], type=relation['type'])
+    
+    logging.info(f"创建的图节点数: {G.number_of_nodes()}, 边数: {G.number_of_edges()}")
+    
+    if G.number_of_nodes() == 0:
+        logging.warning("创建的图没有节点。使用备用方法创建图。")
+        return create_fallback_graph(text)
+    
+    return G
+
+def create_fallback_graph(text):
+    G = nx.Graph()
+    sentences = re.split(r'[。！？]', text)
+    for sentence in sentences:
+        words = list(jieba.cut(sentence.strip()))
+        if len(words) > 2:
+            clean_words = [word for word in words if len(word) > 1 and not word.isdigit()]
+            if len(clean_words) > 2:
+                G.add_edge(clean_words[0], clean_words[1], relation=' '.join(clean_words))
+    
+    logging.info(f"备用方法创建的图节点数: {G.number_of_nodes()}, 边数: {G.number_of_edges()}")
+    return G
+
+def extract_entities_and_relations(text):
+    logging.debug("开始提取实体和关系")
+    
+    text_parts = [text[i:i+1500] for i in range(0, len(text), 1500)]
+    all_entities = []
+    all_relations = []
+    patient_name = None
+
+    for part in text_parts:
+        prompt = f"""
+        请仔细分析以下电子病历文本，并提取重要的医疗实体和它们之间的关系。
+        注意：不要创建通用的"患者"实体，而是直接使用患者的姓名（如"某某"）作为实体。
+
+        实体类型可能包括但不限于：
+        - 患者姓名（如"某某"，而不是通用的"患者"）
+        - 症状
+        - 诊断
+        - 治疗方法
+        - 药物
+        - 检查结果
+        - 医疗设备
+        - 医疗程序
+        - 检查指标（如钙、葡萄糖、转氨酶等）
+
+        关系类型可能包括但不限于：
+        - "患有"（患者姓名与疾病或诊断）
+        - "表现"（患者姓名与症状）
+        - "接受"（患者姓名与治疗/检查）
+        - "使用"（患者姓名与药物/设备）
+        - "检查结果"（患者姓名与检查指标）
+        - "相关"（患者姓名与其他所有实体）
+
+        特别注意：
+        1. 所有实体都必须与患者姓名建立直接关系。如果无法确定具体关系类型，请使用"相关"。
+        2. 确保每个检查指标、症状、诊断等都作为独立的实体，并与患者建立直接关系。
+        3. 不要遗漏任何可能的实体，即使它们看起来是次要的或不确定的。
+
+        请以JSON格式输出，格式如下：
+        {{
+            "entities": [
+                {{"name": "实体名称", "type": "实体类型"}},
+                ...
+            ],
+            "relations": [
+                {{"from": "患者姓名", "to": "实体名称", "type": "关系类型"}},
+                ...
+            ]
+        }}
+
+        请确保所有实体都与患者姓名建立直接关系。
+
+        电子病历文本：
+        {part}
+        """
+        logging.debug(f"处理文本部分，长度：{len(part)}")
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "你是一个专门分析电子病历的AI助手，擅长提取医疗实体和关系。请严格按照指定的JSON格式输出结果，特别注意将所有实体与患者姓名建立直接关系。"},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=2000,
+                temperature=0.3
+            )
+            
+            content = response.choices[0].message.content.strip()
+            logging.info(f"GPT API 响应内容：{content[:200]}...")  # 记录前200个字符
+
+            try:
+                # 尝试提取 JSON 部分
+                json_match = re.search(r'\{[\s\S]*\}', content)
+                if json_match:
+                    json_content = json_match.group()
+                    logging.info(f"提取的 JSON 内容：{json_content[:200]}...")  # 记录前200个字符
+                else:
+                    logging.error("无法从响应中提取 JSON 内容")
+                    continue
+
+                # 尝试解析 JSON
+                try:
+                    parsed_content = json.loads(json_content)
+                except json.JSONDecodeError as e:
+                    logging.error(f"JSON 解析失败，尝试修复: {str(e)}")
+                    # 尝试修复 JSON
+                    fixed_content = json_content.replace("'", '"')  # 替换单引号为双引号
+                    fixed_content = re.sub(r'(\w+):', r'"\1":', fixed_content)  # 给键加上引号
+                    fixed_content = re.sub(r',\s*}', '}', fixed_content)  # 移除最后一个逗号
+                    fixed_content = re.sub(r',\s*]', ']', fixed_content)  # 移除数组中最后一个逗号
+                    fixed_content = re.sub(r'}\s*{', '},{', fixed_content)  # 修复可能的对象分隔问题
+                    parsed_content = json.loads(fixed_content)
+
+                entities = parsed_content.get('entities', [])
+                relations = parsed_content.get('relations', [])
+
+                # 找到患者姓名
+                for entity in entities:
+                    if entity['type'] == '患者姓名':
+                        patient_name = entity['name']
+                        break
+
+                if patient_name:
+                    # 确保所有实体都与患者建立关系
+                    for entity in entities:
+                        if entity['name'] != patient_name:
+                            relation_exists = any(r['from'] == patient_name and r['to'] == entity['name'] for r in relations)
+                            if not relation_exists:
+                                relations.append({
+                                    "from": patient_name,
+                                    "to": entity['name'],
+                                    "type": "相关"
+                                })
+
+                all_entities.extend(entities)
+                all_relations.extend(relations)
+            except Exception as e:
+                logging.error(f"处理 GPT 响应时发生错误: {str(e)}")
+                logging.error(f"问题 JSON: {json_content}")
+
+        except Exception as e:
+            logging.exception(f"处理文本部分时发生异常: {str(e)}")
+
+    # 去除重复的实体和关系
+    unique_entities = list({entity['name']: entity for entity in all_entities}.values())
+    unique_relations = list({(r['from'], r['to'], r['type']): r for r in all_relations}.values())
+
+    return {"entities": unique_entities, "relations": unique_relations}
+
+def init_models_with_timeout():
+    result = []
+    def target():
+        result.append(init_models())
+    
+    thread = threading.Thread(target=target)
+    thread.start()
+    thread.join(timeout=60)  # 60秒超时
+    
+    if thread.is_alive():
+        st.error("模型初始化超时，请检查网络连接或重试")
+        return None, None
+    elif result:
+        return result[0]
+    else:
+        st.error("模初始化失败")
+        return None, None
+
+def display_graph_info(G):
+    try:
+        st.subheader("知识谱息")
+        st.write(f"节点数量: {G.number_of_nodes()}")
+        st.write(f"数量: {G.number_of_edges()}")
+        
+        st.write("节点示例:")
+        for node in list(G.nodes())[:10]:  # 显示10个节点
+            st.write(f"- {node}")
+        
+        st.write("边示例:")
+        for edge in list(G.edges(data=True))[:10]:  # 显示前10条边
+            st.write(f"- {edge[0]} -> {edge[1]}: {edge[2].get('relation', '未知关系')}")
+    except Exception as e:
+        logging.error(f"显示图信息时出错: {str(e)}")
+        st.error("无法显示图信息")
+
+def save_graph(G, filename):
+    with open(filename, 'wb') as f:
+        pickle.dump(G, f)
+
+def load_graph(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
+def save_faiss_index(index, filename):
+    faiss.write_index(index, filename)
+
+def load_faiss_index(filename):
+    return faiss.read_index(filename)
+
+def save_embeddings(embeddings, filename):
+    np.save(filename, embeddings)
+
+def load_embeddings(filename):
+    return np.load(filename)
+
+def save_data(data, filename):
+    with open(filename, 'wb') as f:
+        pickle.dump(data, f)
+
+def load_data(filename):
+    with open(filename, 'rb') as f:
+        return pickle.load(f)
+
+def process_and_save_data(file_path, prefix):
+    logging.info(f"开始处理文件: {file_path}")
+    logging.info(f"使用前缀: {prefix}")
+
+    # 创建知识图谱
+    G = create_knowledge_graph_chinese(file_path)
+    
+    # 始化型
+    embedding_model, index = init_models()
+    
+    # 读取文本
+    with open(file_path, 'r', encoding='utf-8') as file:
+        text = file.read()
+    
+    # 分割句子
+    sentences = [s.strip() for s in re.split(r'[。！？]', text) if s.strip()]
+    
+    # 获取节点
+    nodes = list(G.nodes())
+    
+    # 创建嵌入
+    if nodes:
+        node_embeddings = np.array([encode_text(node, embedding_model) for node in nodes])
+        index.add(node_embeddings)
+    else:
+        node_embeddings = np.array([])
+    
+    # 创建句子嵌入
+    sentence_embeddings = np.array([encode_text(sentence, embedding_model) for sentence in sentences])
+    sentence_index = faiss.IndexFlatL2(sentence_embeddings.shape[1])
+    sentence_index.add(sentence_embeddings)
+    
+    # 保存数据
+    save_graph(G, f"{prefix}_graph.gpickle")
+    save_faiss_index(index, f"{prefix}_index.faiss")
+    save_embeddings(node_embeddings, f"{prefix}_node_embeddings.npy")
+    save_embeddings(sentence_embeddings, f"{prefix}_sentence_embeddings.npy")
+    save_data(nodes, f"{prefix}_nodes.pkl")
+    save_data(sentences, f"{prefix}_sentences.pkl")
+    save_faiss_index(sentence_index, f"{prefix}_sentence_index.faiss")
+
+    logging.info(f"文件 {prefix} 的数据处理和保存完成")
+    logging.info(f"图中节点数: {len(nodes)}, 句子数: {len(sentences)}")
+
+    return G, index, node_embeddings, sentence_embeddings, nodes, sentences, sentence_index
+
+def load_processed_data(prefix):
+    G = load_graph(f"{prefix}_graph.gpickle")
+    index = load_faiss_index(f"{prefix}_index.faiss")
+    node_embeddings = load_embeddings(f"{prefix}_node_embeddings.npy")
+    sentence_embeddings = load_embeddings(f"{prefix}_sentence_embeddings.npy")
+    nodes = load_data(f"{prefix}_nodes.pkl")
+    sentences = load_data(f"{prefix}_sentences.pkl")
+
+    return G, index, node_embeddings, sentence_embeddings, nodes, sentences
+
+def get_processed_files():
+    processed_files = []
+    for filename in os.listdir('uploaded_pdfs'):
+        if filename.endswith('.txt'):
+            base_name = os.path.splitext(filename)[0]
+            has_vector = os.path.exists(f"{base_name}_index.faiss")
+            has_graph = os.path.exists(f"{base_name}_graph.gpickle")
+            processed_files.append({
+                'name': filename,
+                'has_vector': has_vector,
+                'has_graph': has_graph
+            })
+    return processed_files
+
+def load_file_data(file_name):
+    base_name = os.path.splitext(file_name)[0]
+    graph_file = f"{base_name}_graph.gpickle"
+    index_file = f"{base_name}_index.faiss"
+    sentence_index_file = f"{base_name}_sentence_index.faiss"
+    
+    logging.info(f"正在加载文件: {file_name}")
+    logging.info(f"图文件: {graph_file}")
+    logging.info(f"索引文件: {index_file}")
+    logging.info(f"句子索引文件: {sentence_index_file}")
+
+    if not all(os.path.exists(f) for f in [graph_file, index_file, sentence_index_file]):
+        logging.error(f"缺少必要的文件: {file_name}")
+        return None, None, None, None, None, None, None
+
+    G = load_graph(graph_file)
+    index = load_faiss_index(index_file)
+    with open(f"uploaded_pdfs/{file_name}", 'r', encoding='utf-8') as file:
+        text = file.read()
+    sentences = [s.strip() for s in re.split(r'[。！？]', text) if s.strip()]
+    nodes = list(G.nodes())
+    sentence_index = load_faiss_index(sentence_index_file)
+    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    logging.info(f"成功加载文件 {file_name} 的数据")
+    logging.info(f"图中节点数: {len(nodes)}, 句子数: {len(sentences)}")
+    
+    return G, index, nodes, sentences, text, sentence_index, embedding_model
+
+def encode_text(text, embedding_model):
+    return embedding_model.encode(text)
+
+def format_graph_results(context):
+    if context == "未找到相关信息。":
+        return context
+
+    G = nx.Graph()
+    lines = context.split('\n')
+    current_entity = ""
+    for line in lines:
+        if line.startswith("相关节点") or line.startswith("实体"):
+            current_entity = line.split("'")[1]
+            G.add_node(current_entity)
+        elif "的关系:" in line:
+            parts = line.split("的关系:")
+            relation = parts[1].strip()
+            related_entity = parts[0].split("与")[1].strip()
+            G.add_node(related_entity)
+            G.add_edge(current_entity, related_entity, relation=relation)
+
+    net = Network(notebook=True, width="100%", height="400px", bgcolor="#222222", font_color="white")
+    
+    for node in G.nodes():
+        net.add_node(node, label=node, color="#00ff1e")
+    
+    for edge in G.edges(data=True):
+        net.add_edge(edge[0], edge[1], title=edge[2]['relation'], color="#ffffff")
+
+    net.save_graph("temp_graph.html")
+    
+    with open("temp_graph.html", "r", encoding="utf-8") as f:
+        html = f.read()
+    
+    return html
+
+def reprocess_all_documents():
+    uploaded_dir = 'uploaded_pdfs'
+    if not os.path.exists(uploaded_dir):
+        st.warning("没有找到上传的文档目录。")
+        return
+
+    files = [f for f in os.listdir(uploaded_dir) if f.endswith('.txt')]
+    if not files:
+        st.warning("没有找到可以处理的文本文件。")
+        return
+
+    for file in files:
+        file_path = os.path.join(uploaded_dir, file)
+        prefix = os.path.splitext(file)[0]
+        with st.spinner(f"正在处理文件 {file}..."):
+            process_and_save_data(file_path, prefix)
+    
+    st.success("所有文档已重新处理完成。")
+
 def main():
     st.title("GraphRAG vs 纯向量RAG 对比研究")
     
-    if 'data_loaded' not in st.session_state:
-        st.session_state.data_loaded = False
+    # 初始化所有可能用到的 session state 变量
+    session_state_vars = [
+        'current_file', 'demo_data_loaded', 'pdf_embedding_model',
+        'G', 'embedding_model', 'index', 'nodes', 'sentences', 'text',
+        'sentence_index', 'pdf_G', 'pdf_index', 'pdf_nodes', 'pdf_sentences', 'pdf_text'
+    ]
     
+    for var in session_state_vars:
+        if var not in st.session_state:
+            st.session_state[var] = None
+
     tab1, tab2 = st.tabs(["PDF分析", "演示数据"])
     
     with tab1:
         st.header("电子病历PDF分析")
-        st.info("PDF分析功能暂未实现")
         
-        # PDF分析的示例问题
-        with st.sidebar:
-            st.header("PDF分析示例问题")
-            with st.expander("点击展开示例问题"):
-                pdf_questions = [
-                    "患者的主要症状是什么？",
-                    "患者的诊断结果是什么？",
-                    "医生建议的治疗方案是什么？",
-                    "患者的病史中有哪些重要信息？",
-                    "患者的用药情况如何？"
-                ]
-                for q in pdf_questions:
-                    st.markdown(f"- {q}")
+        # 添加重新处理所有文档的按钮
+        if st.button("重新处理所有上传的文档"):
+            reprocess_all_documents()
+        
+        # 显示会话状态变量
+        st.write("会话状态变量:")
+        st.write(st.session_state)
+        
+        # 显示已处理的文件列表
+        processed_files = get_processed_files()
+        st.subheader("已处理的文件")
+        st.write(f"处理文件数量: {len(processed_files)}")
+        for file in processed_files:
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                if st.button(f"{file['name']} (向量: {'是' if file['has_vector'] else '否'}, 图: {'是' if file['has_graph'] else '否'})", key=f"select_{file['name']}"):
+                    # 清除之前的会话状态
+                    for key in ['G', 'index', 'nodes', 'sentences', 'text', 'sentence_index', 'embedding_model']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.session_state.current_file = file['name']
+                    st.rerun()  # 重新运行应用以更新显示
+            with col2:
+                if st.button("重新处理", key=f"reprocess_{file['name']}"):
+                    with st.spinner(f"正在重新处理文件 {file['name']}..."):
+                        file_path = os.path.join('uploaded_pdfs', file['name'])
+                        process_and_save_data(file_path, os.path.splitext(file['name'])[0])
+                    st.success(f"文件 {file['name']} 已重新处理")
+                    st.rerun()
+        
+        uploaded_file = st.file_uploader("上传新的PDF文件", type="pdf")
+        if uploaded_file:
+            file_path = upload_and_process_pdf(uploaded_file)
+            if file_path:
+                st.success(f"PDF已上传并转换为文本文件: {file_path}")
+                st.session_state.current_file = os.path.basename(file_path)
+                st.rerun()  # 重新运行应用以更新显示
+        
+        # 添加调试信息
+        st.write(f"当前文件: {st.session_state.current_file}")
+        st.write(f"图中节点数: {len(st.session_state.nodes) if st.session_state.nodes else 0}")
+        st.write(f"句子数: {len(st.session_state.sentences) if st.session_state.sentences else 0}")
+        
+        # 始终显示重新处理按钮，但根据条件禁用它
+        reprocess_button = st.button(
+            "重新处理当前文件",
+            key="reprocess_button",
+            disabled=(st.session_state.current_file is None)
+        )
+        
+        if reprocess_button and st.session_state.current_file:
+            st.write("正在重新处理文件...")  # 添加这行来确认按钮被点击
+            file_path = os.path.join('uploaded_pdfs', st.session_state.current_file)
+            with st.spinner("正在重新处理文件..."):
+                G, index, node_embeddings, sentence_embeddings, nodes, sentences, sentence_index = process_and_save_data(file_path, os.path.splitext(st.session_state.current_file)[0])
+            st.success("文件已重新处理")
+            st.rerun()
+        
+        if st.session_state.current_file:
+            # 加载文件数
+            G, index, nodes, sentences, text, sentence_index, embedding_model = load_file_data(st.session_state.current_file)
+            
+            # 更新会话状态
+            st.session_state.G = G
+            st.session_state.index = index
+            st.session_state.nodes = nodes
+            st.session_state.sentences = sentences
+            st.session_state.text = text
+            st.session_state.sentence_index = sentence_index
+            st.session_state.embedding_model = embedding_model
+            
+            # 显示知识图谱
+            st.subheader("知识图谱")
+            logging.info(f"正在显示文件 {st.session_state.current_file} 的知识图谱")
+            st.write(f"当前显示的是 {st.session_state.current_file} 的知识图谱")
+            graph_container = st.container()
+            with graph_container:
+                visualize_graph_interactive(G)
+            
+            # 显示知识图谱信息
+            display_graph_info(G)
+            
+            # 查询输入区域
+            st.subheader("RAG 查询")
+            query_input = st.text_input("输入您的查询:", key="pdf_query_input")
+            
+            # 结果显示区域
+            results_container = st.container()
+            
+            if query_input:
+                try:
+                    graph_context, graph_answer, vector_context, vector_answer, comparison = process_query(
+                        query_input, G, embedding_model, 
+                        index, nodes, sentences, text, sentence_index
+                    )
+                    
+                    with results_container:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**GraphRAG 结果:**")
+                            graph_html = format_graph_results(graph_context)
+                            st.components.v1.html(graph_html, height=400)
+                            st.markdown("**生成的答案:**")
+                            st.write(graph_answer)
+                        
+                        with col2:
+                            st.markdown("**纯向量RAG 结果:**")
+                            st.write(vector_context)
+                            st.markdown("**生成的答案:**")
+                            st.write(vector_answer)
+                        
+                        st.subheader("结果比较")
+                        st.write(comparison)
+                except Exception as e:
+                    logging.error(f"处理查询时出错: {str(e)}")
+                    st.error("处理查询时出现错误，请检查日志获取更多信息。")
+        else:
+            st.info("请选择一个文件或上传新的PDF文件进行分析。")
     
     with tab2:
         st.header("演示数据分析")
         
         # 演示数据的示例问题
         with st.sidebar:
-            st.header("达芬奇示例问题")
+            st.header("芬奇示问题")
             with st.expander("点击展开示例问题"):
                 davinci_questions = [
                     "Who was Leonardo da Vinci and what was he known for? (莱昂纳多·达芬奇是谁，他因什么而闻名？)",
-                    "What were some of Leonardo da Vinci's most famous artworks? (莱昂纳多·达芬奇最著名的艺术作品有哪些？)",
-                    "How did Leonardo da Vinci contribute to the field of science? (莱昂纳多·达芬奇对科学领域有哪些贡献？)",
+                    "What were some of Leonardo da Vinci's most famous artworks? (莱昂纳多达芬奇最著名的艺术作品有哪些？)",
+                    "How did Leonardo da Vinci contribute to the field of science? (莱昂纳多·达芬奇对科学域有哪些贡献？)",
                     "What was Leonardo da Vinci's relationship with his patrons? (莱昂纳多·达芬奇与他的赞助人之间的关系如何？)",
-                    "Can you describe Leonardo da Vinci's approach to art and science? (你能描述一下莱昂纳多·达芬奇对艺术和科学的方法吗？)",
+                    "Can you describe Leonardo da Vinci's approach to art and science? (你能述一下莱昂·达芬奇对艺术和科学方法吗？)",
                     "What was Leonardo da Vinci's early life and training like? (莱昂纳多·达芬奇的早期生活和训练是怎样的？)",
                     "How did Leonardo da Vinci's work influence later generations? (莱昂纳多·达芬奇的作品如何影响了后代？)"
                 ]
@@ -238,16 +862,18 @@ def main():
         
         load_button = st.empty()
         
-        if not st.session_state.data_loaded:
+        if not st.session_state.demo_data_loaded:
             if load_button.button("加载演示数据"):
                 file_path = prepare_data()
                 if file_path is None:
-                    st.error("无法准备数据，请检查网络连接或URL。")
+                    st.error("无法准备数据，请检查网络连接URL。")
                 else:
                     st.success("演示数据已加载")
-                    st.session_state.data_loaded = True
+                    st.session_state.demo_data_loaded = True
                     
-                    embedding_model, index = init_models()
+                    embedding_model, index = init_models_with_timeout()
+                    if embedding_model is None or index is None:
+                        st.stop()
                     
                     G = create_knowledge_graph(file_path)
                     
@@ -256,8 +882,39 @@ def main():
                     sentences = [s.strip() for s in text.split('.') if s.strip()]
                     
                     nodes = list(G.nodes())
-                    node_embeddings = embedding_model.encode(nodes)
-                    index.add(np.array(node_embeddings))
+                    if nodes:  # 确保有节点
+                        node_embeddings = embedding_model.encode(nodes)
+                        
+                        # 确保 node_embeddings 是二维数组
+                        if len(node_embeddings.shape) == 1:
+                            node_embeddings = node_embeddings.reshape(1, -1)
+                        
+                        st.write(f"Node embeddings shape: {node_embeddings.shape}")
+                        
+                        if node_embeddings.shape[0] > 0:
+                            index.add(np.array(node_embeddings))
+                        else:
+                            st.warning("No node embeddings to add to the index.")
+                    else:
+                        st.warning("No nodes in the graph to encode.")
+                    
+                    # 为句子创建索引
+                    if sentences:  # 确保有句子
+                        sentence_embeddings = embedding_model.encode(sentences)
+                        
+                        # 确保 sentence_embeddings 是二维数
+                        if len(sentence_embeddings.shape) == 1:
+                            sentence_embeddings = sentence_embeddings.reshape(1, -1)
+                        
+                        st.write(f"Sentence embeddings shape: {sentence_embeddings.shape}")
+                        
+                        if sentence_embeddings.shape[0] > 0:
+                            sentence_index = faiss.IndexFlatL2(sentence_embeddings.shape[1])
+                            sentence_index.add(np.array(sentence_embeddings))
+                        else:
+                            st.warning("No sentence embeddings to add to the index.")
+                    else:
+                        st.warning("No sentences to encode.")
                     
                     st.session_state.G = G
                     st.session_state.embedding_model = embedding_model
@@ -265,13 +922,14 @@ def main():
                     st.session_state.nodes = nodes
                     st.session_state.sentences = sentences
                     st.session_state.text = text
+                    st.session_state.sentence_index = sentence_index  # 添加这行
                     
                     st.rerun()
         
-        if st.session_state.data_loaded:
+        if st.session_state.demo_data_loaded:
             load_button.empty()
             
-            # 固定的知识图谱区域
+            # 定的识图谱区域
             st.subheader("知识图谱")
             graph_container = st.container()
             with graph_container:
@@ -288,23 +946,30 @@ def main():
                 graph_context, graph_answer, vector_context, vector_answer, comparison = process_query(
                     query_input, st.session_state.G, st.session_state.embedding_model, 
                     st.session_state.index, st.session_state.nodes, 
-                    st.session_state.sentences, st.session_state.text
+                    st.session_state.sentences, st.session_state.text,
+                    st.session_state.sentence_index
                 )
                 
                 with results_container:
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write("GraphRAG 结果:")
-                        st.write(graph_context)
-                        st.write("生成的答案:", graph_answer)
+                        st.markdown("**GraphRAG 结果:**")
+                        graph_html = format_graph_results(graph_context)
+                        st.components.v1.html(graph_html, height=400)
+                        st.markdown("**生成的答案:**")
+                        st.write(graph_answer)
                     
                     with col2:
-                        st.write("纯向量RAG 结果:")
+                        st.markdown("**纯向量RAG 结果:**")
                         st.write(vector_context)
-                        st.write("生成的答案:", vector_answer)
+                        st.markdown("**生成的答案:**")
+                        st.write(vector_answer)
                     
                     st.subheader("结果比较")
                     st.write(comparison)
 
 if __name__ == "__main__":
+    logging.info("=" * 50)
+    logging.info("新的应用程序会话开始")
     main()
+

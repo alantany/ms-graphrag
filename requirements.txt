@@ -1,5 +1,5 @@
 streamlit
-networkx
+networkx==2.6.3
 matplotlib
 sentence-transformers
 faiss-cpu
@@ -12,3 +12,5 @@ PyPDF2
 jieba
 nltk
 tiktoken
+transformers
+torch
