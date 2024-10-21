@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.DEBUG,
 
 # 定义全局client
 client = OpenAI(
-    api_key="sk-1pUmQlsIkgla3CuvKTgCrzDZ3r0pBxO608YJvIHCN18lvOrn",
+    api_key="sk-iM6Jc42voEnIOPSKJfFY0ri7chsz4D13sozKyqg403Euwv5e",
     base_url="https://api.chatanywhere.tech/v1"
 )
 
@@ -357,6 +357,23 @@ def create_fallback_graph(text):
     logging.info(f"备用方法创建的图节点数: {G.number_of_nodes()}, 边数: {G.number_of_edges()}")
     return G
 
+def fix_json(json_string):
+    # 移除可能导致问题的Unicode字符
+    json_string = re.sub(r'[\u0000-\u001F\u007F-\u009F]', '', json_string)
+    
+    # 确保JSON对象正确闭合
+    json_string = json_string.strip()
+    if not json_string.endswith('}'):
+        json_string += '}'
+    if not json_string.startswith('{'):
+        json_string = '{' + json_string
+    
+    # 修复常见的JSON格式错误
+    json_string = re.sub(r',\s*}', '}', json_string)  # 移除对象末尾多余的逗号
+    json_string = re.sub(r',\s*]', ']', json_string)  # 移除数组末尾多余的逗号
+    
+    return json_string
+
 def extract_entities_and_relations(text):
     logging.debug("开始提取实体和关系")
     
@@ -371,7 +388,7 @@ def extract_entities_and_relations(text):
         注意：不要创建通用的"患者"实体，而是直接使用患者的姓名（如"某某"）作为实体。
 
         实体类型可能包括但不限于：
-        - 患者姓名（如"某某"，而不是通用的"患者"）
+        - 患者姓名（通用的"患者"应该属于患者姓名）
         - 症状
         - 诊断
         - 治疗方法
@@ -437,18 +454,9 @@ def extract_entities_and_relations(text):
                     logging.error("无法从响应中提取 JSON 内容")
                     continue
 
-                # 尝试解析 JSON
-                try:
-                    parsed_content = json.loads(json_content)
-                except json.JSONDecodeError as e:
-                    logging.error(f"JSON 解析失败，尝试修复: {str(e)}")
-                    # 尝试修复 JSON
-                    fixed_content = json_content.replace("'", '"')  # 替换单引号为双引号
-                    fixed_content = re.sub(r'(\w+):', r'"\1":', fixed_content)  # 给键加上引号
-                    fixed_content = re.sub(r',\s*}', '}', fixed_content)  # 移除最后一个逗号
-                    fixed_content = re.sub(r',\s*]', ']', fixed_content)  # 移除数组中最后一个逗号
-                    fixed_content = re.sub(r'}\s*{', '},{', fixed_content)  # 修复可能的对象分隔问题
-                    parsed_content = json.loads(fixed_content)
+                # 尝试修复和解析 JSON
+                fixed_json = fix_json(json_content)
+                parsed_content = json.loads(fixed_json)
 
                 entities = parsed_content.get('entities', [])
                 relations = parsed_content.get('relations', [])
@@ -473,6 +481,9 @@ def extract_entities_and_relations(text):
 
                 all_entities.extend(entities)
                 all_relations.extend(relations)
+            except json.JSONDecodeError as e:
+                logging.error(f"JSON 解析失败: {str(e)}")
+                logging.error(f"问题 JSON: {fixed_json}")
             except Exception as e:
                 logging.error(f"处理 GPT 响应时发生错误: {str(e)}")
                 logging.error(f"问题 JSON: {json_content}")
