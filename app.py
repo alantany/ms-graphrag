@@ -872,7 +872,7 @@ def main():
             if load_button.button("加载演示数据"):
                 file_path = prepare_data()
                 if file_path is None:
-                    st.error("无法准备据，请检查网络连接URL。")
+                    st.error("无法准备数据，请检查网络连接和URL。")
                 else:
                     st.success("演示数据已加载")
                     st.session_state.demo_data_loaded = True
@@ -888,94 +888,84 @@ def main():
                     sentences = [s.strip() for s in text.split('.') if s.strip()]
                     
                     nodes = list(G.nodes())
-                    if nodes:  # 确保有节点
+                    if nodes:
                         node_embeddings = embedding_model.encode(nodes)
-                        
-                        # 确保 node_embeddings 是二维数组
                         if len(node_embeddings.shape) == 1:
                             node_embeddings = node_embeddings.reshape(1, -1)
-                        
-                        st.write(f"Node embeddings shape: {node_embeddings.shape}")
-                        
                         if node_embeddings.shape[0] > 0:
                             index.add(np.array(node_embeddings))
-                        else:
-                            st.warning("No node embeddings to add to the index.")
-                    else:
-                        st.warning("No nodes in the graph to encode.")
                     
-                    # 为句子创建索引
-                    if sentences:  # 确保有句子
+                    if sentences:
                         sentence_embeddings = embedding_model.encode(sentences)
-                        
-                        # 确保 sentence_embeddings 是二维数
                         if len(sentence_embeddings.shape) == 1:
                             sentence_embeddings = sentence_embeddings.reshape(1, -1)
-                        
-                        st.write(f"Sentence embeddings shape: {sentence_embeddings.shape}")
-                        
                         if sentence_embeddings.shape[0] > 0:
                             sentence_index = faiss.IndexFlatL2(sentence_embeddings.shape[1])
                             sentence_index.add(np.array(sentence_embeddings))
-                        else:
-                            st.warning("No sentence embeddings to add to the index.")
-                    else:
-                        st.warning("No sentences to encode.")
                     
-                    st.session_state.G = G
-                    st.session_state.embedding_model = embedding_model
-                    st.session_state.index = index
-                    st.session_state.nodes = nodes
-                    st.session_state.sentences = sentences
-                    st.session_state.text = text
-                    st.session_state.sentence_index = sentence_index  # 添加这行
+                    # 使用特定的键来存储演示数据的状态
+                    st.session_state.demo_G = G
+                    st.session_state.demo_embedding_model = embedding_model
+                    st.session_state.demo_index = index
+                    st.session_state.demo_nodes = nodes
+                    st.session_state.demo_sentences = sentences
+                    st.session_state.demo_text = text
+                    st.session_state.demo_sentence_index = sentence_index
                     
                     st.rerun()
         
         if st.session_state.demo_data_loaded:
             load_button.empty()
             
-            # 定的识图谱区域
-            st.subheader("知识图谱")
+            # 显示知识图谱
+            st.subheader("达芬奇知识图谱")
             graph_container = st.container()
             with graph_container:
-                visualize_graph_interactive(st.session_state.G)
+                visualize_graph_interactive(st.session_state.demo_G)
+            
+            # 显示知识图谱信息
+            display_graph_info(st.session_state.demo_G)
             
             # 查询输入区域
             st.subheader("RAG 查询")
-            query_input = st.text_input("输入您的查询:", key="query_input")
+            query_input = st.text_input("输入您的查询:", key="demo_query_input")
             
             # 结果显示区域
             results_container = st.container()
             
             if query_input:
-                graph_context, graph_answer, vector_context, vector_answer, comparison = process_query(
-                    query_input, st.session_state.G, st.session_state.embedding_model, 
-                    st.session_state.index, st.session_state.nodes, 
-                    st.session_state.sentences, st.session_state.text,
-                    st.session_state.sentence_index
-                )
-                
-                with results_container:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.markdown("**GraphRAG 结果:**")
-                        graph_html = format_graph_results(graph_context)
-                        st.components.v1.html(graph_html, height=400)
-                        st.markdown("**生成的答案:**")
-                        st.write(graph_answer)
+                try:
+                    graph_context, graph_answer, vector_context, vector_answer, comparison = process_query(
+                        query_input, st.session_state.demo_G, st.session_state.demo_embedding_model, 
+                        st.session_state.demo_index, st.session_state.demo_nodes, 
+                        st.session_state.demo_sentences, st.session_state.demo_text,
+                        st.session_state.demo_sentence_index
+                    )
                     
-                    with col2:
-                        st.markdown("**纯向量RAG 结果:**")
-                        st.write(vector_context)
-                        st.markdown("**生成的答案:**")
-                        st.write(vector_answer)
-                    
-                    st.subheader("结果比较")
-                    st.write(comparison)
+                    with results_container:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**GraphRAG 结果:**")
+                            graph_html = format_graph_results(graph_context)
+                            st.components.v1.html(graph_html, height=400)
+                            st.markdown("**生成的答案:**")
+                            st.write(graph_answer)
+                        
+                        with col2:
+                            st.markdown("**纯向量RAG 结果:**")
+                            st.write(vector_context)
+                            st.markdown("**生成的答案:**")
+                            st.write(vector_answer)
+                        
+                        st.subheader("结果比较")
+                        st.write(comparison)
+                except Exception as e:
+                    logging.error(f"处理查询时出错: {str(e)}")
+                    st.error("处理查询时出现错误，请检查日志获取更多信息。")
+        else:
+            st.info("请点击'加载演示数据'按钮来加载达芬奇相关的数据。")
 
 if __name__ == "__main__":
     logging.info("=" * 50)
     logging.info("新的应用程序会话开始")
     main()
-
