@@ -1,0 +1,16 @@
+streamlit
+networkx==2.6.3
+matplotlib
+sentence-transformers
+faiss-cpu
+openai>=1.0.0
+pandas
+tiktoken
+requests
+pyvis
+PyPDF2
+jieba
+nltk
+tiktoken
+transformers
+torch
