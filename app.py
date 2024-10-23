@@ -120,67 +120,50 @@ def visualize_graph_interactive(G):
     st.components.v1.html(html, width=700, height=500)
 
 def query_graph(_G, query, _embedding_model, index, nodes):
+    logging.info(f"开始查询图: 节点数 {_G.number_of_nodes()}, 边数 {_G.number_of_edges()}")
+    logging.info(f"查询: {query}")
+    
     if not nodes:
+        logging.warning("图中没有节点可供查询")
         return "图中没有节点可供查询。"
     
-    # 使用jieba进行分词和词性标注
-    words = pseg.cut(query)
-    entities = [word for word, flag in words if flag.startswith('n') or flag.startswith('v')]  # 包括名词和动词
+    # 使用jieba进行中文分词
+    keywords = [word for word in jieba.lcut(query) if len(word) > 1]
     
     context = []
     
-    # 直接在图中搜索这些实体
-    for entity in entities:
-        if entity in _G:
-            neighbors = list(_G.neighbors(entity))
-            edges = _G.edges(entity, data=True)
-            relations = [f"{entity} 与 {neighbor} 的关系: {data.get('type', '相关')}" 
-                         for _, neighbor, data in edges if neighbor != entity]
+    # 直接在图中搜索这些关键词
+    for keyword in keywords:
+        matched_nodes = [node for node in _G.nodes() if keyword in str(node)]
+        for node in matched_nodes:
+            neighbors = list(_G.neighbors(node))
+            edges = _G.edges(node, data=True)
+            relations = []
+            for edge in edges:
+                if edge[1] != node:  # edge[1] 是邻居节点
+                    relation = edge[2].get('relation', '相关')
+                    relations.append(f"{node} 与 {edge[1]} 的关系: {relation}")
             if relations:
-                context.append(f"实体 '{entity}' 的关系:\n" + "\n".join(relations))
-    
-    # 如果没有直接匹配的实体，使用模糊匹配
-    if not context:
-        for node in _G.nodes():
-            if any(entity in node for entity in entities):
-                neighbors = list(_G.neighbors(node))
-                edges = _G.edges(node, data=True)
-                relations = [f"{node} 与 {neighbor} 的关系: {data.get('type', '相')}" 
-                             for _, neighbor, data in edges if neighbor != node]
-                if relations:
-                    context.append(f"相关节点 '{node}' 的关系:\n" + "\n".join(relations))
-    
-    # 如果仍然没有匹配，尝试查找患者姓名
-    if not context:
-        patient_nodes = [node for node, data in _G.nodes(data=True) if data.get('type') == '患者姓名']
-        if patient_nodes:
-            patient = patient_nodes[0]
-            edges = _G.edges(patient, data=True)
-            relations = [f"{patient} 与 {neighbor} 的关系: {data.get('type', '相关')}" 
-                         for _, neighbor, data in edges if neighbor != patient]
-            if relations:
-                context.append(f"患者 '{patient}' 的关系:\n" + "\n".join(relations))
+                context.append(f"关键词 '{keyword}' 相关的节点 '{node}' 的关系:\n" + "\n".join(relations))
     
     # 添加日志输出
-    logging.info(f"查询: {query}")
-    logging.info(f"识别的实体: {entities}")
-    logging.info(f"生成的上下文: {context}")
-    
+    logging.info(f"提取的关键词: {keywords}")
+    logging.info(f"查询结果: {context[:500]}...")  # 只记录前500个字符
     return "\n\n".join(context) if context else "未找到相关信息。"
 
-def generate_answer(query, context, max_tokens=4000):
+def generate_answer(query, context, max_tokens=3000):
     logging.info(f"生成答案的查询: {query}")
     logging.info(f"生成答案的上下文长度: {len(context)}")
     
-    # 截断上下文以适应模型的最大输入长
+    # 截断上下文以适应模型的最大输入长度
     truncated_context = context[:max_tokens]
     
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "你是一个医疗助手，根据给定的上下文信息回答问题。上下文包含了从知识图谱中提取的实体关系信息。请仔细分析这些关系，并基于它们来回答问题。如果上下文中没有直接相关的信息，请尝试推断或说明无法回答。"},
-                {"role": "user", "content": f"知识图谱中的实体关系信息：\n{truncated_context}\n\n问题：{query}\n\n请根据上述实体关系信息回答问题，如果信息不足，请说明并尝试推断可能的答案。"}
+                {"role": "system", "content": "你是一个助手，根据给定的上下文信息回答问题。"},
+                {"role": "user", "content": f"上下文信息：\n{truncated_context}\n\n问题：{query}\n\n请根据上述信息回答问题，如果信息不足，请说明并尝试推断可能的答案。"}
             ],
             max_tokens=300
         )
@@ -446,8 +429,8 @@ def extract_entities_and_relations(text):
         - "患有"（患者姓名与疾病或诊断）
         - "表现"（患者姓名与症状）
         - "接受"（患者姓名与治疗/检查）
-        - "使用"（患者姓名与药物/设备）
-        - "检查结果"（患者姓名与检查指标）
+        - "使用"（患者姓名与药物/备）
+        - "检结果"（患者姓名与检查指标）
         - "相关"（患者姓名与其他所有实体）
 
         特注意：
@@ -1033,7 +1016,7 @@ def process_demo_query(query, _G, _embedding_model, _index, nodes, sentences, te
     logging.info(f"处理查询: {query}")
     try:
         graph_start = time.time()
-        graph_context = demo_query_graph(_G, query, _embedding_model, _index, nodes)
+        graph_context = query_graph(_G, query, _embedding_model, _index, nodes)
         graph_time = time.time() - graph_start
         logging.info(f"图谱查询耗时: {graph_time:.2f}秒")
 
@@ -1043,17 +1026,17 @@ def process_demo_query(query, _G, _embedding_model, _index, nodes, sentences, te
         logging.info(f"向量检索耗时: {vector_time:.2f}秒")
 
         graph_answer_start = time.time()
-        graph_answer = generate_answer(query, graph_context, max_tokens=4000)
+        graph_answer = generate_answer(query, graph_context[:3000])  # 限制上下文长度
         graph_answer_time = time.time() - graph_answer_start
         logging.info(f"图谱答案生成耗时: {graph_answer_time:.2f}秒")
 
         vector_answer_start = time.time()
-        vector_answer = generate_answer(query, vector_context, max_tokens=4000)
+        vector_answer = generate_answer(query, vector_context[:3000])  # 限制上下文长度
         vector_answer_time = time.time() - vector_answer_start
         logging.info(f"向量答案生成耗时: {vector_answer_time:.2f}秒")
 
         comparison_start = time.time()
-        comparison = compare_results(query, graph_context[:2000], graph_answer, vector_context[:2000], vector_answer)
+        comparison = compare_results(query, graph_context[:1500], graph_answer, vector_context[:1500], vector_answer)
         comparison_time = time.time() - comparison_start
         logging.info(f"结果比较耗时: {comparison_time:.2f}秒")
 
