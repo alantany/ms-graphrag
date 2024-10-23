@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.DEBUG,
 
 # 定义全局client
 client = OpenAI(
-    api_key="sk-iM6Jc42voEnIOPSKJfFY0ri7chsz4D13sozKyqg403Euwv5e",
+    api_key="sk-1pUmQlsIkgla3CuvKTgCrzDZ3r0pBxO608YJvIHCN18lvOrn",
     base_url="https://api.chatanywhere.tech/v1"
 )
 
@@ -168,20 +168,28 @@ def query_graph(_G, query, _embedding_model, index, nodes):
     
     return "\n\n".join(context) if context else "未找到相关信息。"
 
-def generate_answer(query, context):
+def generate_answer(query, context, max_tokens=4000):
     logging.info(f"生成答案的查询: {query}")
-    logging.info(f"生成答案的上下文: {context}")
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "你是一个医疗助手，根据给定的上下文信息回答问题。上下文包含了从知识图谱中提取的实体关系信息。请仔细分析这些关系，并基于它们来回答问题。如果上下文中没有直接相关的信息，请尝试推断或说明并尝试推断可能的答案。"},
-            {"role": "user", "content": f"知识图谱中的实体关系信息：\n{context}\n\n问题：{query}\n\n请根据上述实体关系信息回答问题，如果信息不足，请说明并尝试推断可能的答案。"}
-        ],
-        max_tokens=300
-    )
-    answer = response.choices[0].message.content.strip()
-    logging.info(f"生成的答案: {answer}")
-    return answer
+    logging.info(f"生成答案的上下文长度: {len(context)}")
+    
+    # 截断上下文以适应模型的最大输入长
+    truncated_context = context[:max_tokens]
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "你是一个医疗助手，根据给定的上下文信息回答问题。上下文包含了从知识图谱中提取的实体关系信息。请仔细分析这些关系，并基于它们来回答问题。如果上下文中没有直接相关的信息，请尝试推断或说明无法回答。"},
+                {"role": "user", "content": f"知识图谱中的实体关系信息：\n{truncated_context}\n\n问题：{query}\n\n请根据上述实体关系信息回答问题，如果信息不足，请说明并尝试推断可能的答案。"}
+            ],
+            max_tokens=300
+        )
+        answer = response.choices[0].message.content.strip()
+        logging.info(f"生成的答案: {answer}")
+        return answer
+    except Exception as e:
+        logging.error(f"生成答案时出错: {str(e)}")
+        return "无法生成答案。"
 
 def vector_rag(text, query, _embedding_model, sentence_index, sentences):
     if not sentences:
@@ -193,7 +201,7 @@ def vector_rag(text, query, _embedding_model, sentence_index, sentences):
         return "\n".join(context)
     except Exception as e:
         logging.error(f"在vector_rag中搜索相似句子时出错: {str(e)}", exc_info=True)
-        return "在处理查询出现��误。"
+        return "在处理查询出现误。"
 
 @st.cache_data
 def process_query(query, _G, _embedding_model, _index, nodes, sentences, text, _sentence_index):
@@ -249,13 +257,12 @@ def on_query_submit():
         st.session_state.vector_context = vector_context
         st.session_state.vector_answer = vector_answer
 
-def compare_results(query, graph_context, graph_answer, vector_context, vector_answer):
+def compare_results(query, graph_context, graph_answer, vector_context, vector_answer, max_tokens=2000):
     # 限制上下文和答案的长度
-    max_context_length = 1000  # 可以根据需要调整这个值
-    graph_context = graph_context[:max_context_length] + ("..." if len(graph_context) > max_context_length else "")
-    vector_context = vector_context[:max_context_length] + ("..." if len(vector_context) > max_context_length else "")
-    graph_answer = graph_answer[:max_context_length] + ("..." if len(graph_answer) > max_context_length else "")
-    vector_answer = vector_answer[:max_context_length] + ("..." if len(vector_answer) > max_context_length else "")
+    graph_context = graph_context[:max_tokens] + ("..." if len(graph_context) > max_tokens else "")
+    vector_context = vector_context[:max_tokens] + ("..." if len(vector_context) > max_tokens else "")
+    graph_answer = graph_answer[:max_tokens] + ("..." if len(graph_answer) > max_tokens else "")
+    vector_answer = vector_answer[:max_tokens] + ("..." if len(vector_answer) > max_tokens else "")
 
     comparison_prompt = f"""
     请比较下两种RAG方法的结果，并给出评价：
@@ -364,7 +371,7 @@ def create_fallback_graph(text):
             if len(clean_words) > 2:
                 G.add_edge(clean_words[0], clean_words[1], relation=' '.join(clean_words))
     
-    logging.info(f"备用方法创建的图节点数: {G.number_of_nodes()}, 边数: {G.number_of_edges()}")
+    logging.info(f"备用方法创建的图节点数: {G.number_of_nodes()}, 边: {G.number_of_edges()}")
     return G
 
 def fix_json(json_string):
@@ -691,7 +698,7 @@ def format_graph_results(context):
                 relation = parts[1].strip()
                 entity_parts = parts[0].split("与")
                 if len(entity_parts) != 2:
-                    logging.warning(f"实体关系格式不正确: {line}")
+                    logging.warning(f"实体关系格式不确: {line}")
                     continue
                 related_entity = entity_parts[1].strip()
                 G.add_node(related_entity)
@@ -1036,17 +1043,17 @@ def process_demo_query(query, _G, _embedding_model, _index, nodes, sentences, te
         logging.info(f"向量检索耗时: {vector_time:.2f}秒")
 
         graph_answer_start = time.time()
-        graph_answer = generate_answer(query, graph_context)
+        graph_answer = generate_answer(query, graph_context, max_tokens=4000)
         graph_answer_time = time.time() - graph_answer_start
         logging.info(f"图谱答案生成耗时: {graph_answer_time:.2f}秒")
 
         vector_answer_start = time.time()
-        vector_answer = generate_answer(query, vector_context)
+        vector_answer = generate_answer(query, vector_context, max_tokens=4000)
         vector_answer_time = time.time() - vector_answer_start
         logging.info(f"向量答案生成耗时: {vector_answer_time:.2f}秒")
 
         comparison_start = time.time()
-        comparison = compare_results(query, graph_context, graph_answer, vector_context, vector_answer)
+        comparison = compare_results(query, graph_context[:2000], graph_answer, vector_context[:2000], vector_answer)
         comparison_time = time.time() - comparison_start
         logging.info(f"结果比较耗时: {comparison_time:.2f}秒")
 
@@ -1138,7 +1145,36 @@ def delete_demo_file(file_name):
 
 def main():
     st.title("GraphRAG vs 纯向量RAG 对比研究")
-    
+
+    # 添加侧边栏说明
+    with st.sidebar:
+        st.header("GraphRAG vs 纯向量RAG")
+        st.markdown("""
+        ### 数据处理机制对比
+        
+        #### GraphRAG:
+        1. 构建知识图谱：从文本中提取实体和关系。
+        2. 图嵌入：将图中的节点转换为向量。
+        3. 查询处理：
+           - 在图中搜索相关节点和关系。
+           - 使用图结构进行推理。
+        4. 结果生成：基于图的上下文生成答案。
+
+        #### 纯向量RAG:
+        1. 文本分割：将文档分割成小段落或句子。
+        2. 向量化：将每个文本片段转换为向量。
+        3. 查询处理：
+           - 将查询转换为向量。
+           - 搜索最相似的文本片段。
+        4. 结果生成：基于检索到的文本片段生成答案。
+
+        ### 主要区别
+        - GraphRAG 利用结构化信息和关系推理。
+        - 纯向量RAG 依赖于文本相似性匹配。
+        - GraphRAG 可能更适合复杂查询和推理任务。
+        - 纯向量RAG 通常更简单，处理速度可能更快。
+        """)
+
     # 初始化所有可能用到的 session state 变量
     session_state_vars = [
         'current_file', 'demo_data_loaded', 'pdf_embedding_model',
@@ -1189,7 +1225,7 @@ def main():
         if uploaded_file:
             file_path = upload_and_process_pdf(uploaded_file)
             if file_path:
-                st.success(f"PDF已上传并转换为文本文件: {file_path}")
+                st.success(f"PDF已上传并换为文本文件: {file_path}")
                 st.session_state.current_file = os.path.basename(file_path)
                 st.rerun()  # 重新运行应用以更新显示
         
@@ -1226,7 +1262,7 @@ def main():
             st.session_state.sentence_index = sentence_index
             st.session_state.embedding_model = embedding_model
             
-            # 显示知识图谱
+            # 显知识图谱
             st.subheader("知识图谱")
             logging.info(f"正在显示文件 {st.session_state.current_file} 的知识图谱")
             st.write(f"当前显示的是 {st.session_state.current_file} 的知识图谱")
